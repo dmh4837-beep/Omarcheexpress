@@ -7,6 +7,7 @@ import {
   MapPin, Phone, MessageSquare, Eye, EyeOff, PackageCheck, PackageX,
   BarChart3, Home as HomeIcon, ClipboardList, Settings, Flame
 } from "lucide-react";
+import { supabase } from "./supabaseClient";
 
 /* ============================== FONTS / GLOBAL STYLE ============================== */
 const GlobalStyle = () => (
@@ -620,7 +621,7 @@ function TrackingView({ order, onContinueShopping }) {
 }
 
 /* ============================== ACCOUNT VIEW ============================== */
-function AccountView({ currentUser, onLogin, onLogout, orders }) {
+function AccountView({ currentUser, onLogin, onSignup, onLogout, orders, authError, authLoading }) {
   const [mode, setMode] = useState("login");
   const [showPw, setShowPw] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
@@ -632,8 +633,11 @@ function AccountView({ currentUser, onLogin, onLogout, orders }) {
         <div className="flex items-center gap-3 mb-6">
           <div className="w-12 h-12 rounded-full bg-[#FFF1E6] flex items-center justify-center"><User size={20} className="text-[#FF6A00]" /></div>
           <div>
-            <div className="oe-display font-bold text-[#1C1C1E] text-[16px]">{currentUser.name}</div>
-            <div className="text-[12px] text-[#8A8781]">{currentUser.phone}</div>
+            <div className="oe-display font-bold text-[#1C1C1E] text-[16px] flex items-center gap-2">
+              {currentUser.name}
+              {currentUser.is_admin && <span className="text-[10px] font-bold bg-[#FFF1E6] text-[#FF6A00] px-2 py-0.5 rounded-full">ADMIN</span>}
+            </div>
+            <div className="text-[12px] text-[#8A8781]">{currentUser.phone} · {currentUser.email}</div>
           </div>
         </div>
 
@@ -669,19 +673,24 @@ function AccountView({ currentUser, onLogin, onLogout, orders }) {
       <p className="text-[12px] text-[#8A8781] mb-5">{mode === "login" ? "Connectez-vous pour suivre vos commandes." : "Rejoignez OmarchéExpress en quelques secondes."}</p>
       <div className="flex flex-col gap-3">
         {mode === "signup" && (
-          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nom complet" className="oe-focus border border-[#EFEDE8] rounded-xl px-3.5 py-2.5 text-[13px]" />
+          <>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nom complet" className="oe-focus border border-[#EFEDE8] rounded-xl px-3.5 py-2.5 text-[13px]" />
+            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Téléphone" className="oe-focus border border-[#EFEDE8] rounded-xl px-3.5 py-2.5 text-[13px]" />
+          </>
         )}
-        <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Téléphone" className="oe-focus border border-[#EFEDE8] rounded-xl px-3.5 py-2.5 text-[13px]" />
+        <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Adresse email" className="oe-focus border border-[#EFEDE8] rounded-xl px-3.5 py-2.5 text-[13px]" />
         <div className="relative">
           <input type={showPw ? "text" : "password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Mot de passe" className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3.5 py-2.5 text-[13px] pr-10" />
           <button className="oe-focus absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8781]" onClick={() => setShowPw(!showPw)}>{showPw ? <EyeOff size={15} /> : <Eye size={15} />}</button>
         </div>
       </div>
+      {authError && <p className="text-[12px] text-[#B42318] mt-3">{authError}</p>}
       <button
-        onClick={() => onLogin({ name: form.name || "Client OmarchéExpress", phone: form.phone || "07 00 00 00 00" })}
-        className="oe-focus w-full mt-5 bg-[#1C1C1E] hover:bg-[#FF6A00] transition-colors text-white font-semibold text-[14px] rounded-full py-3"
-      >{mode === "login" ? "Se connecter" : "Créer mon compte"}</button>
-      <p className="text-[11px] text-[#8A8781] text-center mt-4">Démo : aucune vérification réelle n'est effectuée.</p>
+        disabled={authLoading}
+        onClick={() => mode === "login" ? onLogin(form.email, form.password) : onSignup(form)}
+        className="oe-focus w-full mt-5 bg-[#1C1C1E] hover:bg-[#FF6A00] transition-colors text-white font-semibold text-[14px] rounded-full py-3 disabled:opacity-50"
+      >{authLoading ? "Veuillez patienter..." : mode === "login" ? "Se connecter" : "Créer mon compte"}</button>
+      <p className="text-[11px] text-[#8A8781] text-center mt-4">Tes commandes sont sauvegardées sur ton compte réel OmarchéExpress.</p>
     </div>
   );
 }
@@ -770,7 +779,7 @@ function AdminDashboard({ orders, products, clients }) {
   );
 }
 
-function AdminProducts({ products, categories, setProducts, notify }) {
+function AdminProducts({ products, categories, onSaveProduct, onDeleteProduct, onToggleProduct, notify }) {
   const [editing, setEditing] = useState(null); // product or "new"
   const emptyForm = { name: "", cat: categories[0]?.id, price: "", stock: "", promo: false, promoPrice: "", img: IMG("nouveau-" + Date.now()), desc: "", active: true, popular: false, isNew: true };
   const [form, setForm] = useState(emptyForm);
@@ -778,21 +787,18 @@ function AdminProducts({ products, categories, setProducts, notify }) {
   const openNew = () => { setForm(emptyForm); setEditing("new"); };
   const openEdit = (p) => { setForm({ ...p }); setEditing(p.id); };
 
-  const save = () => {
+  const save = async () => {
     if (!form.name.trim() || form.price === "" || form.stock === "") { notify("Veuillez remplir les champs obligatoires"); return; }
     const payload = { ...form, price: Number(form.price), stock: Number(form.stock), promoPrice: form.promo ? Number(form.promoPrice || 0) : undefined };
-    if (editing === "new") {
-      setProducts((prev) => [{ ...payload, id: "p" + Date.now() }, ...prev]);
-      notify("Produit ajouté");
-    } else {
-      setProducts((prev) => prev.map((p) => (p.id === editing ? { ...p, ...payload } : p)));
-      notify("Produit modifié");
-    }
+    const isNewProduct = editing === "new";
+    const ok = await onSaveProduct(payload, isNewProduct ? null : editing);
+    if (ok) notify(isNewProduct ? "Produit ajouté" : "Produit modifié");
+    else notify("Erreur lors de l'enregistrement");
     setEditing(null);
   };
 
-  const remove = (id) => { setProducts((prev) => prev.filter((p) => p.id !== id)); notify("Produit supprimé"); };
-  const toggleActive = (id) => setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, active: !p.active } : p)));
+  const remove = async (id) => { const ok = await onDeleteProduct(id); notify(ok ? "Produit supprimé" : "Erreur lors de la suppression"); };
+  const toggleActive = (id) => onToggleProduct(id);
 
   return (
     <div className="p-5 md:p-8">
@@ -884,18 +890,18 @@ function AdminProducts({ products, categories, setProducts, notify }) {
   );
 }
 
-function AdminCategories({ categories, setCategories, products, notify }) {
+function AdminCategories({ categories, products, onAddCategory, onDeleteCategory, onRenameCategory, notify }) {
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState(null);
 
-  const add = () => {
+  const add = async () => {
     if (!newName.trim()) return;
-    setCategories((prev) => [...prev, { id: "c" + Date.now(), name: newName.trim(), icon: Tag }]);
+    const ok = await onAddCategory(newName.trim());
     setNewName("");
-    notify("Catégorie créée");
+    notify(ok ? "Catégorie créée" : "Erreur lors de la création");
   };
-  const remove = (id) => { setCategories((prev) => prev.filter((c) => c.id !== id)); notify("Catégorie supprimée"); };
-  const rename = (id, name) => setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
+  const remove = async (id) => { const ok = await onDeleteCategory(id); notify(ok ? "Catégorie supprimée" : "Erreur lors de la suppression"); };
+  const rename = async (id, name) => { await onRenameCategory(id, name); };
 
   return (
     <div className="p-5 md:p-8 max-w-xl">
@@ -910,7 +916,7 @@ function AdminCategories({ categories, setCategories, products, notify }) {
       <div className="flex flex-col gap-2">
         {categories.map((c) => (
           <div key={c.id} className="flex items-center gap-3 bg-white border border-[#EFEDE8] rounded-2xl p-3">
-            <div className="w-9 h-9 rounded-xl bg-[#FFF1E6] flex items-center justify-center shrink-0"><c.icon size={16} className="text-[#FF6A00]" /></div>
+            <div className="w-9 h-9 rounded-xl bg-[#FFF1E6] flex items-center justify-center shrink-0">{React.createElement(c.icon || Tag, { size: 16, className: "text-[#FF6A00]" })}</div>
             {editing === c.id ? (
               <input autoFocus defaultValue={c.name} onBlur={(e) => { rename(c.id, e.target.value); setEditing(null); }} onKeyDown={(e) => e.key === "Enter" && e.target.blur()} className="oe-focus flex-1 border border-[#EFEDE8] rounded-lg px-2 py-1 text-[13px]" />
             ) : (
@@ -926,10 +932,10 @@ function AdminCategories({ categories, setCategories, products, notify }) {
   );
 }
 
-function AdminOrders({ orders, setOrders, notify }) {
+function AdminOrders({ orders, onSetStatus, notify }) {
   const [filter, setFilter] = useState("Toutes");
   const filters = ["Toutes", ...STATUS_STEPS, "Annulée"];
-  const setStatus = (id, status) => { setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o))); notify(`Commande ${id} → ${status}`); };
+  const setStatus = async (id, status) => { const ok = await onSetStatus(id, status); notify(ok ? `Commande ${id} → ${status}` : "Erreur lors de la mise à jour"); };
   const shown = filter === "Toutes" ? orders : orders.filter((o) => o.status === filter);
 
   return (
@@ -1000,7 +1006,7 @@ function AdminClients({ clients }) {
   );
 }
 
-function AdminApp({ orders, setOrders, products, setProducts, categories, setCategories, clients, notify }) {
+function AdminApp({ orders, products, categories, clients, notify, handlers }) {
   const [tab, setTab] = useState("dashboard");
   return (
     <div className="flex">
@@ -1008,33 +1014,107 @@ function AdminApp({ orders, setOrders, products, setProducts, categories, setCat
       <div className="flex-1 min-w-0">
         <AdminTabsMobile tab={tab} setTab={setTab} />
         {tab === "dashboard" && <AdminDashboard orders={orders} products={products} clients={clients} />}
-        {tab === "products" && <AdminProducts products={products} categories={categories} setProducts={setProducts} notify={notify} />}
-        {tab === "categories" && <AdminCategories categories={categories} setCategories={setCategories} products={products} notify={notify} />}
-        {tab === "orders" && <AdminOrders orders={orders} setOrders={setOrders} notify={notify} />}
+        {tab === "products" && <AdminProducts products={products} categories={categories} onSaveProduct={handlers.saveProduct} onDeleteProduct={handlers.deleteProduct} onToggleProduct={handlers.toggleProduct} notify={notify} />}
+        {tab === "categories" && <AdminCategories categories={categories} products={products} onAddCategory={handlers.addCategory} onDeleteCategory={handlers.deleteCategory} onRenameCategory={handlers.renameCategory} notify={notify} />}
+        {tab === "orders" && <AdminOrders orders={orders} onSetStatus={handlers.setOrderStatus} notify={notify} />}
         {tab === "clients" && <AdminClients clients={clients} />}
       </div>
     </div>
   );
 }
 
+/* ============================== SUPABASE HELPERS ============================== */
+const CATEGORY_ICONS = {
+  "Fruits & Légumes": Apple, "Épicerie": ShoppingBasket, "Boissons": Coffee,
+  "Produits laitiers": Milk, "Snacks": Cookie, "Hygiène": SprayCan,
+};
+const iconForCategory = (name) => CATEGORY_ICONS[name] || Tag;
+
+const dbProductToApp = (p) => ({
+  id: p.id, name: p.name, cat: p.category_id, price: p.price,
+  promo: p.promo, promoPrice: p.promo_price, stock: p.stock,
+  popular: p.popular, isNew: p.is_new, active: p.active,
+  img: p.image_url, desc: p.description,
+});
+const dbCategoryToApp = (c) => ({ id: c.id, name: c.name, icon: iconForCategory(c.name) });
+
 /* ============================== ROOT APP ============================== */
 export default function OmarcheExpress() {
-  const [products, setProducts] = useState(INIT_PRODUCTS);
-  const [categories, setCategories] = useState(CATS);
-  const [orders, setOrders] = useState(INIT_ORDERS);
-  const [clients, setClients] = useState(INIT_CLIENTS);
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [dataLoading, setDataLoading] = useState(true);
 
   const [isAdmin, setIsAdmin] = useState(false);
-  const [view, setView] = useState("home"); // home | search | product | cart | checkout | tracking | account
+  const [view, setView] = useState("home");
   const [query, setQuery] = useState("");
   const [catId, setCatId] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [cart, setCart] = useState([]); // {id, qty}
+  const [cart, setCart] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
   const [lastOrder, setLastOrder] = useState(null);
   const [toast, setToast] = useState("");
 
   const notify = (msg) => { setToast(msg); window.clearTimeout(notify._t); notify._t = window.setTimeout(() => setToast(""), 2200); };
+
+  /* ---------- Chargement des données publiques ---------- */
+  const loadCatalog = async () => {
+    const [{ data: cats, error: catErr }, { data: prods, error: prodErr }] = await Promise.all([
+      supabase.from("categories").select("*").order("name"),
+      supabase.from("products").select("*").order("created_at", { ascending: false }),
+    ]);
+    if (!catErr && cats) setCategories(cats.map(dbCategoryToApp));
+    if (!prodErr && prods) setProducts(prods.map(dbProductToApp));
+    setDataLoading(false);
+  };
+
+  const loadClientProfile = async (userId, email) => {
+    const { data, error } = await supabase.from("clients").select("*").eq("id", userId).single();
+    if (!error && data) setCurrentUser({ id: data.id, name: data.name, phone: data.phone, email: data.email || email, is_admin: !!data.is_admin });
+  };
+
+  useEffect(() => {
+    loadCatalog();
+    supabase.auth.getSession().then(({ data }) => {
+      if (data?.session?.user) loadClientProfile(data.session.user.id, data.session.user.email);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) loadClientProfile(session.user.id, session.user.email);
+      else setCurrentUser(null);
+    });
+    return () => sub?.subscription?.unsubscribe();
+  }, []);
+
+  /* ---------- Données admin (protégées par RLS) ---------- */
+  const loadAdminData = async () => {
+    const { data: ordersData } = await supabase
+      .from("orders")
+      .select("*, order_items(*)")
+      .order("created_at", { ascending: false });
+    if (ordersData) {
+      setOrders(ordersData.map((o) => ({
+        id: o.order_number, uuid: o.id, clientId: o.client_id,
+        clientName: o.client_name, phone: o.phone, address: o.address,
+        quartier: o.quartier, ville: o.ville, comment: o.comment,
+        total: o.total, status: o.status, date: o.created_at,
+        items: (o.order_items || []).map((it) => ({ id: it.product_id, name: it.product_name, qty: it.quantity, price: it.unit_price })),
+      })));
+    }
+    const { data: clientsData } = await supabase.from("clients").select("*");
+    if (clientsData && ordersData) {
+      setClients(clientsData.map((c) => ({
+        id: c.id, name: c.name, phone: c.phone, email: c.email,
+        orders: ordersData.filter((o) => o.client_id === c.id).length,
+      })));
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin && currentUser?.is_admin) loadAdminData();
+  }, [isAdmin, currentUser]);
 
   const cartCount = cart.reduce((s, c) => s + c.qty, 0);
 
@@ -1055,38 +1135,133 @@ export default function OmarcheExpress() {
   const goSearchAll = () => { setCatId(null); setQuery(""); setView("search"); };
   const doSearch = () => { setView("search"); };
 
-  const submitOrder = (form, total, lines) => {
-    const orderId = "OE-" + (1043 + orders.length);
-    const order = {
-      id: orderId, clientName: form.name, phone: form.phone, address: form.address,
+  const requestAdmin = () => {
+    if (currentUser?.is_admin) { setIsAdmin(true); }
+    else { setView("account"); notify("Connecte-toi avec un compte administrateur"); }
+  };
+
+  /* ---------- Commande ---------- */
+  const submitOrder = async (form, total, lines) => {
+    const { data: numData } = await supabase.rpc("generate_order_number");
+    const orderNumber = numData || ("OE-" + Date.now());
+    const { data: orderRow, error: orderErr } = await supabase.from("orders").insert({
+      order_number: orderNumber, client_id: currentUser?.id || null,
+      client_name: form.name, phone: form.phone, address: form.address,
       quartier: form.quartier, ville: form.ville, comment: form.comment,
-      items: lines.map((l) => ({ id: l.id, name: l.product.name, qty: l.qty, price: l.product.promo ? l.product.promoPrice : l.product.price })),
-      total, status: "Reçue", date: new Date().toISOString(),
-    };
-    setOrders((prev) => [order, ...prev]);
-    // decrement stock
+      total, status: "Reçue",
+    }).select().single();
+    if (orderErr || !orderRow) { notify("Erreur lors de l'envoi de la commande"); return; }
+
+    const items = lines.map((l) => ({
+      order_id: orderRow.id, product_id: l.id, product_name: l.product.name,
+      quantity: l.qty, unit_price: l.product.promo ? l.product.promoPrice : l.product.price,
+    }));
+    await supabase.from("order_items").insert(items);
+
+    // décrémenter le stock de chaque produit
+    await Promise.all(lines.map((l) =>
+      supabase.from("products").update({ stock: Math.max(0, l.product.stock - l.qty) }).eq("id", l.id)
+    ));
     setProducts((prev) => prev.map((p) => {
       const line = lines.find((l) => l.id === p.id);
       return line ? { ...p, stock: Math.max(0, p.stock - line.qty) } : p;
     }));
-    // upsert client
-    setClients((prev) => {
-      const exists = prev.find((c) => c.name === form.name);
-      if (exists) return prev.map((c) => (c.name === form.name ? { ...c, orders: c.orders + 1, phone: form.phone } : c));
-      return [...prev, { id: "cl" + Date.now(), name: form.name, phone: form.phone, email: "-", orders: 1 }];
-    });
+
+    const order = {
+      id: orderNumber, uuid: orderRow.id, clientName: form.name, phone: form.phone,
+      address: form.address, quartier: form.quartier, ville: form.ville, comment: form.comment,
+      items: lines.map((l) => ({ id: l.id, name: l.product.name, qty: l.qty, price: l.product.promo ? l.product.promoPrice : l.product.price })),
+      total, status: "Reçue", date: new Date().toISOString(),
+    };
     setCart([]);
     setLastOrder(order);
     setView("tracking");
     notify("Commande envoyée !");
   };
 
-  // keep lastOrder status synced if admin changes it
-  const trackedOrder = lastOrder ? orders.find((o) => o.id === lastOrder.id) || lastOrder : null;
+  const trackedOrder = lastOrder
+    ? (orders.find((o) => o.uuid === lastOrder.uuid) || lastOrder)
+    : null;
 
-  const bottomNavGo = (id) => {
-    if (id === "search") goSearchAll();
-    else setView(id);
+  const bottomNavGo = (id) => { if (id === "search") goSearchAll(); else setView(id); };
+
+  /* ---------- Auth ---------- */
+  const handleLogin = async (email, password) => {
+    setAuthError(""); setAuthLoading(true);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    setAuthLoading(false);
+    if (error) { setAuthError("Email ou mot de passe incorrect."); return; }
+    if (data?.user) await loadClientProfile(data.user.id, data.user.email);
+    notify("Connecté avec succès");
+  };
+
+  const handleSignup = async (form) => {
+    setAuthError(""); setAuthLoading(true);
+    const { data, error } = await supabase.auth.signUp({ email: form.email, password: form.password });
+    if (error) { setAuthLoading(false); setAuthError(error.message.includes("already") ? "Ce compte existe déjà." : "Impossible de créer le compte."); return; }
+    if (data?.user) {
+      await supabase.from("clients").insert({ id: data.user.id, name: form.name || "Client", phone: form.phone, email: form.email });
+      if (data.session) { await loadClientProfile(data.user.id, data.user.email); notify("Compte créé avec succès"); }
+      else { setAuthError("Compte créé ! Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi."); }
+    }
+    setAuthLoading(false);
+  };
+
+  const handleLogout = async () => { await supabase.auth.signOut(); setCurrentUser(null); setIsAdmin(false); goHome(); };
+
+  /* ---------- Handlers admin (Supabase) ---------- */
+  const adminHandlers = {
+    saveProduct: async (payload, editingId) => {
+      const row = {
+        name: payload.name, category_id: payload.cat, price: payload.price,
+        promo: payload.promo, promo_price: payload.promo ? payload.promoPrice : null,
+        stock: payload.stock, popular: payload.popular, is_new: payload.isNew,
+        active: payload.active, image_url: payload.img, description: payload.desc,
+      };
+      if (editingId) {
+        const { error } = await supabase.from("products").update(row).eq("id", editingId);
+        if (error) return false;
+      } else {
+        const { error } = await supabase.from("products").insert(row);
+        if (error) return false;
+      }
+      const { data } = await supabase.from("products").select("*").order("created_at", { ascending: false });
+      if (data) setProducts(data.map(dbProductToApp));
+      return true;
+    },
+    deleteProduct: async (id) => {
+      const { error } = await supabase.from("products").delete().eq("id", id);
+      if (!error) setProducts((prev) => prev.filter((p) => p.id !== id));
+      return !error;
+    },
+    toggleProduct: async (id) => {
+      const prod = products.find((p) => p.id === id);
+      if (!prod) return;
+      const { error } = await supabase.from("products").update({ active: !prod.active }).eq("id", id);
+      if (!error) setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, active: !p.active } : p)));
+    },
+    addCategory: async (name) => {
+      const { data, error } = await supabase.from("categories").insert({ name }).select().single();
+      if (error || !data) return false;
+      setCategories((prev) => [...prev, dbCategoryToApp(data)]);
+      return true;
+    },
+    deleteCategory: async (id) => {
+      const { error } = await supabase.from("categories").delete().eq("id", id);
+      if (!error) setCategories((prev) => prev.filter((c) => c.id !== id));
+      return !error;
+    },
+    renameCategory: async (id, name) => {
+      await supabase.from("categories").update({ name }).eq("id", id);
+      setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
+    },
+    setOrderStatus: async (orderNumber, status) => {
+      const order = orders.find((o) => o.id === orderNumber);
+      if (!order) return false;
+      const { error } = await supabase.from("orders").update({ status }).eq("id", order.uuid);
+      if (!error) setOrders((prev) => prev.map((o) => (o.id === orderNumber ? { ...o, status } : o)));
+      return !error;
+    },
   };
 
   return (
@@ -1097,7 +1272,7 @@ export default function OmarcheExpress() {
           query={query} setQuery={setQuery} onSearch={doSearch}
           cartCount={cartCount} onCart={() => setView("cart")}
           onGoHome={goHome} onGoAccount={() => setView("account")}
-          isAdmin={isAdmin} setIsAdmin={setIsAdmin}
+          isAdmin={isAdmin} setIsAdmin={(v) => (v ? requestAdmin() : setIsAdmin(false))}
         />
       )}
       {isAdmin && (
@@ -1111,21 +1286,27 @@ export default function OmarcheExpress() {
       )}
 
       {isAdmin ? (
-        <AdminApp orders={orders} setOrders={setOrders} products={products} setProducts={setProducts} categories={categories} setCategories={setCategories} clients={clients} notify={notify} />
+        <AdminApp orders={orders} products={products} categories={categories} clients={clients} notify={notify} handlers={adminHandlers} />
       ) : (
         <div className="max-w-6xl mx-auto">
-          {view === "home" && <HomeView products={products} categories={categories} onOpen={setSelectedProduct} onAdd={addToCart} goCategory={goCategory} goSearchAll={goSearchAll} />}
-          {view === "search" && <ProductListView products={products} categories={categories} query={query} setQuery={setQuery} catId={catId} setCatId={setCatId} onOpen={setSelectedProduct} onAdd={addToCart} onBack={goHome} />}
-          {view === "cart" && <CartView cart={cart} products={products} onQty={updateQty} onRemove={removeFromCart} onCheckout={() => setView("checkout")} onContinue={goSearchAll} />}
-          {view === "checkout" && <CheckoutView cart={cart} products={products} onSubmit={submitOrder} onBack={() => setView("cart")} currentUser={currentUser} />}
-          {view === "tracking" && <TrackingView order={trackedOrder} onContinueShopping={goHome} />}
-          {view === "account" && <AccountView currentUser={currentUser} onLogin={(u) => { setCurrentUser(u); notify("Connecté avec succès"); }} onLogout={() => setCurrentUser(null)} orders={orders} />}
+          {dataLoading ? (
+            <div className="text-center py-24 text-[13px] text-[#8A8781]">Chargement de la boutique...</div>
+          ) : (
+            <>
+              {view === "home" && <HomeView products={products} categories={categories} onOpen={setSelectedProduct} onAdd={addToCart} goCategory={goCategory} goSearchAll={goSearchAll} />}
+              {view === "search" && <ProductListView products={products} categories={categories} query={query} setQuery={setQuery} catId={catId} setCatId={setCatId} onOpen={setSelectedProduct} onAdd={addToCart} onBack={goHome} />}
+              {view === "cart" && <CartView cart={cart} products={products} onQty={updateQty} onRemove={removeFromCart} onCheckout={() => setView("checkout")} onContinue={goSearchAll} />}
+              {view === "checkout" && <CheckoutView cart={cart} products={products} onSubmit={submitOrder} onBack={() => setView("cart")} currentUser={currentUser} />}
+              {view === "tracking" && <TrackingView order={trackedOrder} onContinueShopping={goHome} />}
+              {view === "account" && <AccountView currentUser={currentUser} onLogin={handleLogin} onSignup={handleSignup} onLogout={handleLogout} orders={orders} authError={authError} authLoading={authLoading} />}
+            </>
+          )}
         </div>
       )}
 
       {!isAdmin && <div className="hidden md:block text-center py-6 text-[11px] text-[#8A8781]">Bouton "Espace admin" en haut à droite pour accéder au back-office.</div>}
       {!isAdmin && <div className="md:hidden text-center pb-24 pt-4 text-[11px] text-[#8A8781]">
-        <button onClick={() => setIsAdmin(true)} className="oe-focus underline">Accéder à l'espace admin</button>
+        <button onClick={requestAdmin} className="oe-focus underline">Accéder à l'espace admin</button>
       </div>}
 
       {!isAdmin && <BottomNav view={view} go={bottomNavGo} cartCount={cartCount} />}
