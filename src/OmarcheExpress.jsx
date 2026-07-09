@@ -5,7 +5,8 @@ import {
   Truck, LayoutGrid, Tag, Pencil, LogOut, Star, AlertCircle, Apple,
   Coffee, Milk, Cookie, SprayCan, ShoppingBasket, PlusCircle, ArrowLeft,
   MapPin, Phone, MessageSquare, Eye, EyeOff, PackageCheck, PackageX,
-  BarChart3, Home as HomeIcon, ClipboardList, Settings, Flame
+  BarChart3, Home as HomeIcon, ClipboardList, Settings, Flame,
+  Sparkles, Baby, HeartPulse, UtensilsCrossed, Smartphone, Shirt, Upload
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -781,14 +782,32 @@ function AdminDashboard({ orders, products, clients }) {
 
 function AdminProducts({ products, categories, onSaveProduct, onDeleteProduct, onToggleProduct, notify }) {
   const [editing, setEditing] = useState(null); // product or "new"
-  const emptyForm = { name: "", cat: categories[0]?.id, price: "", stock: "", promo: false, promoPrice: "", img: IMG("nouveau-" + Date.now()), desc: "", active: true, popular: false, isNew: true };
+  const emptyForm = { name: "", cat: categories[0]?.id, price: "", stock: "", promo: false, promoPrice: "", img: "", desc: "", active: true, popular: false, isNew: true };
   const [form, setForm] = useState(emptyForm);
+  const [uploading, setUploading] = useState(false);
 
   const openNew = () => { setForm(emptyForm); setEditing("new"); };
   const openEdit = (p) => { setForm({ ...p }); setEditing(p.id); };
 
+  const handlePhotoPick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const ext = file.name.split(".").pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error } = await supabase.storage.from("product-images").upload(fileName, file);
+    if (error) {
+      notify("Erreur lors de l'envoi de la photo");
+    } else {
+      const { data } = supabase.storage.from("product-images").getPublicUrl(fileName);
+      setForm((f) => ({ ...f, img: data.publicUrl }));
+    }
+    setUploading(false);
+  };
+
   const save = async () => {
     if (!form.name.trim() || form.price === "" || form.stock === "") { notify("Veuillez remplir les champs obligatoires"); return; }
+    if (!form.img) { notify("Ajoutez une photo pour le produit"); return; }
     const payload = { ...form, price: Number(form.price), stock: Number(form.stock), promoPrice: form.promo ? Number(form.promoPrice || 0) : undefined };
     const isNewProduct = editing === "new";
     const ok = await onSaveProduct(payload, isNewProduct ? null : editing);
@@ -858,8 +877,20 @@ function AdminProducts({ products, categories, onSaveProduct, onDeleteProduct, o
                 </div>
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-[#4B4B4E]">URL photo</label>
-                <input value={form.img} onChange={(e) => setForm({ ...form, img: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
+                <label className="text-[11px] font-semibold text-[#4B4B4E]">Photo du produit</label>
+                <div className="mt-1 flex items-center gap-3">
+                  {form.img ? (
+                    <img src={form.img} alt="Aperçu" className="w-16 h-16 rounded-xl object-cover bg-[#F5F3EF] border border-[#EFEDE8]" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-[#F5F3EF] border border-dashed border-[#EFEDE8] flex items-center justify-center text-[#8A8781]">
+                      <Upload size={18} />
+                    </div>
+                  )}
+                  <label className="oe-focus cursor-pointer flex-1 text-center border border-[#EFEDE8] rounded-xl px-3 py-2.5 text-[12px] font-semibold text-[#4B4B4E] hover:border-[#1C1C1E]">
+                    {uploading ? "Envoi en cours..." : form.img ? "Changer la photo" : "Choisir une photo dans la galerie"}
+                    <input type="file" accept="image/*" onChange={handlePhotoPick} disabled={uploading} className="hidden" />
+                  </label>
+                </div>
               </div>
               <div>
                 <label className="text-[11px] font-semibold text-[#4B4B4E]">Description</label>
@@ -1025,8 +1056,9 @@ function AdminApp({ orders, products, categories, clients, notify, handlers }) {
 
 /* ============================== SUPABASE HELPERS ============================== */
 const CATEGORY_ICONS = {
-  "Fruits & Légumes": Apple, "Épicerie": ShoppingBasket, "Boissons": Coffee,
-  "Produits laitiers": Milk, "Snacks": Cookie, "Hygiène": SprayCan,
+  "Hygiène & Beauté": Sparkles, "Entretien de la maison": HomeIcon, "Bébé": Baby,
+  "Santé & Bien-être": HeartPulse, "Cuisine & Maison": UtensilsCrossed,
+  "Électronique & Accessoires": Smartphone, "Mode & Accessoires": Shirt,
 };
 const iconForCategory = (name) => CATEGORY_ICONS[name] || Tag;
 
