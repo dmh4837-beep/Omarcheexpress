@@ -6,9 +6,13 @@ import {
   Coffee, Milk, Cookie, SprayCan, ShoppingBasket, PlusCircle, ArrowLeft,
   MapPin, Phone, MessageSquare, Eye, EyeOff, PackageCheck, PackageX,
   BarChart3, Home as HomeIcon, ClipboardList, Settings, Flame,
-  Sparkles, Baby, HeartPulse, UtensilsCrossed, Smartphone, Shirt, Upload
+  Sparkles, Baby, HeartPulse, UtensilsCrossed, Smartphone, Shirt, Upload,
+  Headphones, ShieldCheck, RotateCcw, ChevronDown, Facebook, Instagram, Send, MessageCircle
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
+
+const WHATSAPP_NUMBER = "225748372316"; // 07 48 37 23 16
+const waLink = (msg) => `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
 
 /* ============================== FONTS / GLOBAL STYLE ============================== */
 const GlobalStyle = () => (
@@ -166,7 +170,79 @@ function Toast({ message }) {
   );
 }
 
-/* ============================== PRODUCT CARD ============================== */
+function FloatingWhatsApp() {
+  return (
+    <a
+      href={waLink("Bonjour OmarchéExpress, j'ai une question.")}
+      target="_blank" rel="noopener noreferrer"
+      className="oe-focus fixed bottom-24 md:bottom-6 right-4 md:right-6 z-40 w-13 h-13 md:w-14 md:h-14 rounded-full bg-[#25D366] shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
+      aria-label="Discuter sur WhatsApp"
+      style={{ width: 52, height: 52 }}
+    >
+      <MessageCircle size={24} color="#fff" fill="#fff" strokeWidth={0} />
+    </a>
+  );
+}
+
+/* ============================== MESSAGERIE PAR COMMANDE ============================== */
+function OrderChat({ orderUuid, orderNumber, sender, notify }) {
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  const load = async () => {
+    const { data } = await supabase.from("order_messages").select("*").eq("order_id", orderUuid).order("created_at", { ascending: true });
+    if (data) setMessages(data);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); const id = setInterval(load, 6000); return () => clearInterval(id); }, [orderUuid]);
+
+  const send = async () => {
+    if (!text.trim()) return;
+    setSending(true);
+    const { error } = await supabase.from("order_messages").insert({ order_id: orderUuid, sender, content: text.trim() });
+    if (!error) { setText(""); load(); } else notify && notify("Erreur d'envoi du message");
+    setSending(false);
+  };
+
+  return (
+    <div className="border border-[#EFEDE8] rounded-2xl overflow-hidden">
+      <div className="bg-[#F5F3EF] px-4 py-2.5 flex items-center justify-between">
+        <span className="text-[12px] font-semibold text-[#1C1C1E] flex items-center gap-1.5"><MessageSquare size={14} className="text-[#FF6A00]" /> Discussion — {orderNumber}</span>
+        <a href={waLink(`Bonjour, je vous contacte au sujet de ma commande ${orderNumber}.`)} target="_blank" rel="noopener noreferrer" className="oe-focus text-[10px] font-semibold text-[#1F8A50] flex items-center gap-1">
+          <MessageCircle size={12} /> WhatsApp
+        </a>
+      </div>
+      <div className="max-h-64 overflow-y-auto p-3 flex flex-col gap-2 bg-white">
+        {loading ? (
+          <div className="text-[12px] text-[#8A8781] text-center py-4">Chargement...</div>
+        ) : messages.length === 0 ? (
+          <div className="text-[12px] text-[#8A8781] text-center py-4">Aucun message pour l'instant.</div>
+        ) : messages.map((m) => (
+          <div key={m.id} className={`max-w-[75%] rounded-2xl px-3 py-2 text-[12.5px] ${m.sender === sender ? "self-end bg-[#1C1C1E] text-white" : "self-start bg-[#F5F3EF] text-[#1C1C1E]"}`}>
+            {m.content}
+            <div className={`text-[9.5px] mt-1 ${m.sender === sender ? "text-white/50" : "text-[#8A8781]"}`}>{new Date(m.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 p-2.5 border-t border-[#EFEDE8]">
+        <input
+          value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+          placeholder="Écrire un message..."
+          className="oe-focus flex-1 bg-[#F5F3EF] rounded-full px-3.5 py-2 text-[12.5px]"
+        />
+        <button onClick={send} disabled={sending || !text.trim()} className="oe-focus w-9 h-9 rounded-full bg-[#1C1C1E] text-white flex items-center justify-center disabled:opacity-30 shrink-0">
+          <Send size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 function ProductCard({ p, onOpen, onAdd }) {
   const outOfStock = p.stock <= 0;
   const price = p.promo ? p.promoPrice : p.price;
@@ -207,21 +283,69 @@ function ProductCard({ p, onOpen, onAdd }) {
 }
 
 /* ============================== HEADER + BOTTOM NAV ============================== */
-function Header({ query, setQuery, onSearch, cartCount, onCart, onGoHome, onGoAccount, isAdmin, setIsAdmin }) {
+function TopBar() {
+  return (
+    <div className="hidden md:block bg-[#1C1C1E] text-white/80">
+      <div className="max-w-6xl mx-auto px-4 py-2 flex items-center justify-between text-[11px]">
+        <div className="flex items-center gap-5">
+          <span className="flex items-center gap-1.5"><Truck size={12} className="text-[#FF6A00]" /> Livraison gratuite partout à Abidjan</span>
+          <span className="flex items-center gap-1.5"><Package size={12} className="text-[#FF6A00]" /> Expédition dans toute la Côte d'Ivoire (frais à la charge du client)</span>
+        </div>
+        <div className="flex items-center gap-5">
+          <span className="flex items-center gap-1.5"><Wallet size={12} className="text-[#FF6A00]" /> Paiement à la livraison</span>
+          <span className="flex items-center gap-1.5"><Phone size={12} className="text-[#FF6A00]" /> Service client 7j/7</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategoryMenu({ categories, goCategory, open, setOpen }) {
+  if (!open) return null;
+  return (
+    <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl border border-[#EFEDE8] shadow-xl py-2 z-50" onMouseLeave={() => setOpen(false)}>
+      {categories.map((c) => (
+        <button
+          key={c.id}
+          onClick={() => { goCategory(c.id); setOpen(false); }}
+          className="oe-focus w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#F5F3EF] text-left"
+        >
+          <div className="w-8 h-8 rounded-lg bg-[#FFF1E6] flex items-center justify-center shrink-0">
+            <c.icon size={15} className="text-[#FF6A00]" />
+          </div>
+          <span className="text-[13px] font-medium text-[#1C1C1E]">{c.name}</span>
+          <ChevronRight size={14} className="ml-auto text-[#8A8781]" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Header({ query, setQuery, onSearch, cartCount, onCart, onGoHome, onGoAccount, isAdmin, setIsAdmin, categories, goCategory, goSearchAll }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-[#EFEDE8]">
+      <TopBar />
       <div className="max-w-6xl mx-auto px-4 py-3">
         <div className="flex items-center gap-3">
           <button className="oe-focus" onClick={onGoHome}><Logo /></button>
-          <div className="hidden md:flex flex-1 relative">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8A8781]" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onSearch()}
-              placeholder="Rechercher un produit, une catégorie..."
-              className="oe-focus w-full bg-[#F5F3EF] rounded-full pl-10 pr-4 py-2.5 text-[13px] text-[#1C1C1E] placeholder:text-[#8A8781]"
-            />
+          <div className="hidden md:flex flex-1 items-center gap-2 relative">
+            <div className="relative shrink-0" onMouseEnter={() => setMenuOpen(true)}>
+              <button className="oe-focus flex items-center gap-2 bg-[#1C1C1E] text-white text-[12px] font-semibold rounded-full pl-3.5 pr-3 py-2.5 hover:bg-[#FF6A00] transition-colors">
+                <LayoutGrid size={14} /> Toutes les catégories <ChevronRight size={13} className="rotate-90" />
+              </button>
+              <CategoryMenu categories={categories} goCategory={goCategory} open={menuOpen} setOpen={setMenuOpen} />
+            </div>
+            <div className="relative flex-1">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8A8781]" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && onSearch()}
+                placeholder="Rechercher un produit, une catégorie..."
+                className="oe-focus w-full bg-[#F5F3EF] rounded-full pl-10 pr-4 py-2.5 text-[13px] text-[#1C1C1E] placeholder:text-[#8A8781]"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2 ml-auto">
             <button className="oe-focus hidden md:flex items-center gap-1.5 text-[12px] font-medium text-[#4B4B4E] px-3 py-2 rounded-full hover:bg-[#F5F3EF]" onClick={onGoAccount}>
@@ -247,6 +371,15 @@ function Header({ query, setQuery, onSearch, cartCount, onCart, onGoHome, onGoAc
             placeholder="Rechercher..."
             className="oe-focus w-full bg-[#F5F3EF] rounded-full pl-10 pr-4 py-2.5 text-[13px] placeholder:text-[#8A8781]"
           />
+        </div>
+      </div>
+      {/* Category quick nav (desktop) */}
+      <div className="hidden md:block bg-[#1C1C1E]">
+        <div className="max-w-6xl mx-auto px-4 flex items-center gap-6 overflow-x-auto oe-scrollbar-none">
+          <button onClick={onGoHome} className="oe-focus shrink-0 text-[12px] font-semibold text-white py-2.5 border-b-2 border-[#FF6A00]">Accueil</button>
+          {categories.map((c) => (
+            <button key={c.id} onClick={() => goCategory(c.id)} className="oe-focus shrink-0 text-[12px] font-medium text-white/70 hover:text-white py-2.5">{c.name}</button>
+          ))}
         </div>
       </div>
     </div>
@@ -276,29 +409,123 @@ function BottomNav({ view, go, cartCount }) {
   );
 }
 
+/* ============================== COMPTE À REBOURS (offre du jour) ============================== */
+function useMidnightCountdown() {
+  const calc = () => {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    const diff = Math.max(0, midnight - now);
+    return {
+      h: String(Math.floor(diff / 3600000)).padStart(2, "0"),
+      m: String(Math.floor((diff % 3600000) / 60000)).padStart(2, "0"),
+      s: String(Math.floor((diff % 60000) / 1000)).padStart(2, "0"),
+    };
+  };
+  const [t, setT] = useState(calc);
+  useEffect(() => {
+    const id = setInterval(() => setT(calc()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return t;
+}
+
+function TrustBar() {
+  const items = [
+    { icon: Wallet, label: "Paiement à la livraison", sub: "Réglez en espèces à la réception" },
+    { icon: Truck, label: "Livraison gratuite", sub: "Partout à Abidjan" },
+    { icon: Package, label: "Expédition Côte d'Ivoire", sub: "Frais à la charge du client" },
+    { icon: ShieldCheck, label: "Boutique unique", sub: "OmarchéExpress, un seul vendeur de confiance" },
+  ];
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-4 mt-5">
+      {items.map((it) => (
+        <div key={it.label} className="bg-white border border-[#EFEDE8] rounded-2xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-[#FFF1E6] flex items-center justify-center shrink-0"><it.icon size={16} className="text-[#FF6A00]" /></div>
+          <div className="min-w-0">
+            <div className="text-[11.5px] font-semibold text-[#1C1C1E] leading-tight">{it.label}</div>
+            <div className="text-[10.5px] text-[#8A8781] leading-tight mt-0.5">{it.sub}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CategorySidebar({ categories, goCategory }) {
+  return (
+    <div className="hidden md:flex flex-col w-60 shrink-0 bg-white border border-[#EFEDE8] rounded-3xl py-3 h-fit">
+      {categories.map((c) => (
+        <button key={c.id} onClick={() => goCategory(c.id)} className="oe-focus flex items-center gap-3 px-4 py-2.5 hover:bg-[#F5F3EF] text-left">
+          <c.icon size={16} className="text-[#FF6A00] shrink-0" />
+          <span className="text-[12.5px] font-medium text-[#1C1C1E]">{c.name}</span>
+          <ChevronRight size={13} className="ml-auto text-[#C9C6C0]" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PromoCountdown({ products, onOpen, onAdd }) {
+  const promo = products.filter((p) => p.promo && p.active);
+  const t = useMidnightCountdown();
+  if (!promo.length) return null;
+  return (
+    <div className="px-4 mt-9">
+      <div className="bg-[#1C1C1E] rounded-3xl p-5 md:p-6">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <Flame size={18} className="text-[#FF6A00]" />
+            <div>
+              <h2 className="oe-display font-bold text-white text-[16px]">Offres du jour</h2>
+              <p className="text-[11px] text-white/50">Promotions valables jusqu'à minuit</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 oe-mono">
+            {[["h", t.h], ["m", t.m], ["s", t.s]].map(([k, v], i) => (
+              <React.Fragment key={k}>
+                <span className="bg-white/10 text-white text-[13px] font-semibold rounded-lg px-2.5 py-1.5">{v}</span>
+                {i < 2 && <span className="text-white/40">:</span>}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {promo.map((p) => <ProductCard key={p.id} p={p} onOpen={onOpen} onAdd={onAdd} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================== HOME VIEW ============================== */
 function HomeView({ products, categories, onOpen, onAdd, goCategory, goSearchAll }) {
   const popular = products.filter((p) => p.popular && p.active);
   const news = products.filter((p) => p.isNew && p.active);
   return (
     <div className="pb-8">
-      {/* Hero */}
-      <div className="relative overflow-hidden bg-[#1C1C1E] mx-4 mt-4 rounded-3xl">
-        <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-[#FF6A00] opacity-90" />
-        <div className="absolute right-10 bottom-[-40px] w-24 h-24 rounded-full border-4 border-white/10" />
-        <div className="relative px-6 py-9 md:py-12 md:px-10 max-w-lg">
-          <span className="oe-mono text-[11px] tracking-widest text-[#FF6A00] font-semibold">MARCHÉ DU JOUR</span>
-          <h1 className="oe-display text-white text-[26px] md:text-[34px] font-bold leading-[1.08] mt-2">
-            Achetez simplement,<br />recevez rapidement.
-          </h1>
-          <p className="text-white/70 text-[13px] mt-3 max-w-xs">Paiement uniquement à la livraison. Livré par OmarchéExpress, chez vous, aujourd'hui.</p>
-          <button onClick={goSearchAll} className="oe-focus mt-5 bg-white text-[#1C1C1E] text-[13px] font-semibold rounded-full px-5 py-2.5 inline-flex items-center gap-1.5 hover:bg-[#FF6A00] hover:text-white transition-colors">
-            Voir tous les produits <ChevronRight size={15} />
-          </button>
+      <div className="max-w-6xl mx-auto md:flex md:gap-4 md:px-4 md:mt-4">
+        <CategorySidebar categories={categories} goCategory={goCategory} />
+        {/* Hero */}
+        <div className="relative overflow-hidden bg-[#1C1C1E] mx-4 mt-4 md:mx-0 md:mt-0 rounded-3xl flex-1">
+          <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-[#FF6A00] opacity-90" />
+          <div className="absolute right-10 bottom-[-40px] w-24 h-24 rounded-full border-4 border-white/10" />
+          <div className="relative px-6 py-9 md:py-12 md:px-10 max-w-lg">
+            <span className="oe-mono text-[11px] tracking-widest text-[#FF6A00] font-semibold">MARCHÉ DU JOUR</span>
+            <h1 className="oe-display text-white text-[26px] md:text-[34px] font-bold leading-[1.08] mt-2">
+              Achetez simplement,<br />recevez rapidement.
+            </h1>
+            <p className="text-white/70 text-[13px] mt-3 max-w-xs">Paiement uniquement à la livraison. Livré gratuitement à Abidjan par OmarchéExpress, votre boutique unique.</p>
+            <button onClick={goSearchAll} className="oe-focus mt-5 bg-white text-[#1C1C1E] text-[13px] font-semibold rounded-full px-5 py-2.5 inline-flex items-center gap-1.5 hover:bg-[#FF6A00] hover:text-white transition-colors">
+              Voir tous les produits <ChevronRight size={15} />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Categories */}
+      <TrustBar />
+
+      {/* Categories (mobile-first grid, visible on all sizes) */}
       <div className="px-4 mt-8">
         <div className="flex items-center justify-between mb-3">
           <h2 className="oe-display font-bold text-[#1C1C1E] text-[16px]">Catégories</h2>
@@ -315,6 +542,7 @@ function HomeView({ products, categories, onOpen, onAdd, goCategory, goSearchAll
         </div>
       </div>
 
+      <PromoCountdown products={products} onOpen={onOpen} onAdd={onAdd} />
       {/* Popular */}
       <Section title="Produits populaires" subtitle="Les préférés de nos clients cette semaine" items={popular} onOpen={onOpen} onAdd={onAdd} />
       {/* New */}
@@ -394,6 +622,9 @@ function ProductDetail({ product, onClose, onAdd }) {
             {product.promo && <span className="oe-mono text-[13px] text-[#8A8781] line-through">{money(product.price)}</span>}
           </div>
           <p className="text-[13px] text-[#4B4B4E] mt-3 leading-relaxed">{product.desc}</p>
+          <a href={waLink(`Bonjour, je suis intéressé(e) par : ${product.name}.`)} target="_blank" rel="noopener noreferrer" className="oe-focus mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#1F8A50]">
+            <MessageCircle size={14} /> Discuter avec OmarchéExpress sur WhatsApp
+          </a>
           <div className="mt-4">
             <div className="flex items-center justify-between text-[12px] text-[#8A8781] mb-1.5">
               <span>Stock disponible</span>
@@ -615,6 +846,13 @@ function TrackingView({ order, onContinueShopping }) {
           })}
         </div>
       </div>
+
+      {order.uuid && (
+        <div className="mt-8">
+          <h2 className="oe-display font-bold text-[#1C1C1E] text-[15px] mb-4">Une question sur cette commande ?</h2>
+          <OrderChat orderUuid={order.uuid} orderNumber={order.id} sender="client" notify={() => {}} />
+        </div>
+      )}
 
       <button onClick={onContinueShopping} className="oe-focus w-full mt-4 bg-[#1C1C1E] text-white font-semibold text-[14px] rounded-full py-3.5">Continuer mes achats</button>
     </div>
@@ -965,6 +1203,7 @@ function AdminCategories({ categories, products, onAddCategory, onDeleteCategory
 
 function AdminOrders({ orders, onSetStatus, notify }) {
   const [filter, setFilter] = useState("Toutes");
+  const [openChat, setOpenChat] = useState(null);
   const filters = ["Toutes", ...STATUS_STEPS, "Annulée"];
   const setStatus = async (id, status) => { const ok = await onSetStatus(id, status); notify(ok ? `Commande ${id} → ${status}` : "Erreur lors de la mise à jour"); };
   const shown = filter === "Toutes" ? orders : orders.filter((o) => o.status === filter);
@@ -998,13 +1237,21 @@ function AdminOrders({ orders, onSetStatus, notify }) {
             </div>
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#F1F0EE]">
               <span className="oe-mono font-bold text-[#1C1C1E] text-[14px]">{money(o.total)}</span>
-              <div className="flex gap-1.5 flex-wrap justify-end">
+              <div className="flex gap-1.5 flex-wrap justify-end items-center">
+                <button onClick={() => setOpenChat(openChat === o.id ? null : o.id)} className="oe-focus text-[10px] font-semibold px-2.5 py-1.5 rounded-full border border-[#EFEDE8] text-[#4B4B4E] hover:border-[#1C1C1E] flex items-center gap-1">
+                  <MessageSquare size={11} /> {openChat === o.id ? "Fermer" : "Discussion"}
+                </button>
                 {STATUS_STEPS.map((s) => (
                   <button key={s} onClick={() => setStatus(o.id, s)} disabled={o.status === s} className={`oe-focus text-[10px] font-semibold px-2.5 py-1.5 rounded-full border ${o.status === s ? "bg-[#1C1C1E] text-white border-[#1C1C1E]" : "border-[#EFEDE8] text-[#4B4B4E] hover:border-[#1C1C1E]"}`}>{s}</button>
                 ))}
                 <button onClick={() => setStatus(o.id, "Annulée")} disabled={o.status === "Annulée"} className="oe-focus text-[10px] font-semibold px-2.5 py-1.5 rounded-full border border-[#FBE4E4] text-[#B42318] disabled:opacity-40">Annuler</button>
               </div>
             </div>
+            {openChat === o.id && (
+              <div className="mt-3">
+                <OrderChat orderUuid={o.uuid} orderNumber={o.id} sender="admin" notify={notify} />
+              </div>
+            )}
           </div>
         ))}
         {shown.length === 0 && <EmptyState icon={ClipboardList} title="Aucune commande" subtitle="Aucune commande ne correspond à ce filtre." />}
@@ -1069,6 +1316,49 @@ const dbProductToApp = (p) => ({
   img: p.image_url, desc: p.description,
 });
 const dbCategoryToApp = (c) => ({ id: c.id, name: c.name, icon: iconForCategory(c.name) });
+
+/* ============================== FOOTER ============================== */
+function Footer({ goHome, goSearchAll, requestAdmin }) {
+  return (
+    <div className="bg-[#1C1C1E] mt-10 pb-20 md:pb-0">
+      <div className="max-w-6xl mx-auto px-5 py-10 grid grid-cols-2 md:grid-cols-4 gap-8">
+        <div className="col-span-2 md:col-span-1">
+          <button onClick={goHome} className="oe-focus"><Logo /></button>
+          <p className="text-[12px] text-white/50 mt-3 max-w-[220px]">Achetez simplement, recevez rapidement. Votre boutique unique de confiance.</p>
+        </div>
+        <div>
+          <h3 className="text-white text-[12px] font-semibold mb-3">Livraison & Paiement</h3>
+          <ul className="flex flex-col gap-2 text-[12px] text-white/50">
+            <li className="flex items-center gap-1.5"><Truck size={13} className="text-[#FF6A00]" /> Livraison gratuite à Abidjan</li>
+            <li className="flex items-center gap-1.5"><Package size={13} className="text-[#FF6A00]" /> Expédition CI (frais client)</li>
+            <li className="flex items-center gap-1.5"><Wallet size={13} className="text-[#FF6A00]" /> Paiement à la livraison</li>
+          </ul>
+        </div>
+        <div>
+          <h3 className="text-white text-[12px] font-semibold mb-3">Aide</h3>
+          <ul className="flex flex-col gap-2 text-[12px] text-white/50">
+            <li className="flex items-center gap-1.5"><Headphones size={13} className="text-[#FF6A00]" /> Service client 7j/7</li>
+            <li className="flex items-center gap-1.5"><RotateCcw size={13} className="text-[#FF6A00]" /> Retours faciles sous 7 jours</li>
+            <li><button onClick={goSearchAll} className="oe-focus hover:text-white">Voir tous les produits</button></li>
+          </ul>
+        </div>
+        <div>
+          <h3 className="text-white text-[12px] font-semibold mb-3">OmarchéExpress</h3>
+          <ul className="flex flex-col gap-2 text-[12px] text-white/50">
+            <li><button onClick={requestAdmin} className="oe-focus hover:text-white">Espace administrateur</button></li>
+            <li className="flex items-center gap-3 mt-1">
+              <Facebook size={15} className="text-white/40 hover:text-[#FF6A00] cursor-pointer" />
+              <Instagram size={15} className="text-white/40 hover:text-[#FF6A00] cursor-pointer" />
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div className="border-t border-white/10 py-4 text-center text-[11px] text-white/40">
+        © {new Date().getFullYear()} OmarchéExpress — Achetez simplement, recevez rapidement.
+      </div>
+    </div>
+  );
+}
 
 /* ============================== ROOT APP ============================== */
 export default function OmarcheExpress() {
@@ -1145,7 +1435,7 @@ export default function OmarcheExpress() {
   };
 
   useEffect(() => {
-    if (isAdmin && currentUser?.is_admin) loadAdminData();
+    if (currentUser) loadAdminData();
   }, [isAdmin, currentUser]);
 
   const cartCount = cart.reduce((s, c) => s + c.qty, 0);
@@ -1305,6 +1595,7 @@ export default function OmarcheExpress() {
           cartCount={cartCount} onCart={() => setView("cart")}
           onGoHome={goHome} onGoAccount={() => setView("account")}
           isAdmin={isAdmin} setIsAdmin={(v) => (v ? requestAdmin() : setIsAdmin(false))}
+          categories={categories} goCategory={goCategory} goSearchAll={goSearchAll}
         />
       )}
       {isAdmin && (
@@ -1336,15 +1627,13 @@ export default function OmarcheExpress() {
         </div>
       )}
 
-      {!isAdmin && <div className="hidden md:block text-center py-6 text-[11px] text-[#8A8781]">Bouton "Espace admin" en haut à droite pour accéder au back-office.</div>}
-      {!isAdmin && <div className="md:hidden text-center pb-24 pt-4 text-[11px] text-[#8A8781]">
-        <button onClick={requestAdmin} className="oe-focus underline">Accéder à l'espace admin</button>
-      </div>}
+      {!isAdmin && <Footer goHome={goHome} goSearchAll={goSearchAll} requestAdmin={requestAdmin} />}
 
       {!isAdmin && <BottomNav view={view} go={bottomNavGo} cartCount={cartCount} />}
 
       <ProductDetail product={selectedProduct} onClose={() => setSelectedProduct(null)} onAdd={addToCart} />
       <Toast message={toast} />
+      {!isAdmin && <FloatingWhatsApp />}
     </div>
   );
 }
