@@ -8,7 +8,7 @@ import {
   BarChart3, Home as HomeIcon, ClipboardList, Settings, Flame,
   Sparkles, Baby, HeartPulse, UtensilsCrossed, Smartphone, Shirt, Upload,
   Headphones, ShieldCheck, RotateCcw, ChevronDown, Facebook, Instagram, Send, MessageCircle,
-  Cable, Store, Gamepad2, Luggage, Cpu, Glasses, Dumbbell, BookOpen, Car, Heart
+  Cable, Store, Gamepad2, Briefcase, Cpu, Glasses, Dumbbell, BookOpen, Car, Heart
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 const AdminApp = lazy(() => import("./Admin.jsx"));
@@ -111,14 +111,7 @@ export const money = (n) => n.toLocaleString("fr-FR").replace(/,/g, " ") + " FCF
 function Logo({ compact }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="w-9 h-9 rounded-xl bg-[#FF6A00] flex items-center justify-center shrink-0">
-        <ShoppingBasket size={18} color="#fff" strokeWidth={2.4} />
-      </div>
-      {!compact && (
-        <div className="leading-none">
-          <div className="oe-display font-bold text-[#1C1C1E] text-[17px] tracking-tight">Omarché<span className="text-[#FF6A00]">Express</span></div>
-        </div>
-      )}
+      <img src="/logo.png" alt="OmarchéExpress" className={compact ? "h-9 w-auto" : "h-10 w-auto"} />
     </div>
   );
 }
@@ -540,13 +533,13 @@ function HomeView({ products, categories, onOpen, onAdd, goCategory, goSearchAll
         <div className="relative overflow-hidden bg-[#1C1C1E] mx-4 mt-4 md:mx-0 md:mt-0 rounded-3xl flex-1">
           <div className="absolute -right-10 -top-16 w-56 h-56 rounded-full bg-[#FF6A00] opacity-90" />
           <div className="absolute right-10 bottom-[-40px] w-24 h-24 rounded-full border-4 border-white/10" />
-          <div className="relative px-6 py-9 md:py-12 md:px-10 max-w-lg">
-            <span className="oe-mono text-[11px] tracking-widest text-[#FF6A00] font-semibold">MARCHÉ DU JOUR</span>
-            <h1 className="oe-display text-white text-[26px] md:text-[34px] font-bold leading-[1.08] mt-2">
+          <div className="relative px-6 py-6 md:py-8 md:px-10 max-w-lg">
+            <span className="oe-display text-[20px] md:text-[24px] tracking-tight text-[#FF6A00] font-bold">MARCHÉ DU JOUR</span>
+            <h1 className="oe-display text-white text-[24px] md:text-[30px] font-bold leading-[1.08] mt-2">
               Achetez simplement,<br />recevez rapidement.
             </h1>
             <p className="text-white/70 text-[13px] mt-3 max-w-xs">Paiement uniquement à la livraison. Livré gratuitement à Abidjan par OmarchéExpress, votre boutique unique.</p>
-            <button onClick={goSearchAll} className="oe-focus mt-5 bg-white text-[#1C1C1E] text-[13px] font-semibold rounded-full px-5 py-2.5 inline-flex items-center gap-1.5 hover:bg-[#FF6A00] hover:text-white transition-colors">
+            <button onClick={goSearchAll} className="oe-focus mt-4 bg-white text-[#1C1C1E] text-[13px] font-semibold rounded-full px-5 py-2.5 inline-flex items-center gap-1.5 hover:bg-[#FF6A00] hover:text-white transition-colors">
               Voir tous les produits <ChevronRight size={15} />
             </button>
           </div>
@@ -970,7 +963,7 @@ const CATEGORY_ICONS = {
   "Pour bébé": Baby, "Smartphones": Smartphone, "Accessoires Téléphone": Cable,
   "Dubai Mall": Store, "Maison et cuisine": UtensilsCrossed, "Mode homme": Shirt,
   "Mode femme": Shirt, "Mode enfant": Baby, "Jeux Vidéos, Consoles et Accessoires": Gamepad2,
-  "Bagages et sacs de voyage": Luggage, "Electronique": Cpu, "Lunettes de vue": Glasses,
+  "Bagages et sacs de voyage": Briefcase, "Electronique": Cpu, "Lunettes de vue": Glasses,
   "Sports et Loisirs": Dumbbell, "Beauté et hygiène": Sparkles,
   "Fournitures de Bureau et Scolaires": BookOpen, "Auto et moto": Car,
   "Érotisme, Sexe & Sensualité": Heart,
@@ -991,7 +984,7 @@ function Footer({ goHome, goSearchAll, requestAdmin }) {
     <div className="bg-[#1C1C1E] mt-10 pb-20 md:pb-0">
       <div className="max-w-6xl mx-auto px-5 py-10 grid grid-cols-2 md:grid-cols-4 gap-8">
         <div className="col-span-2 md:col-span-1">
-          <button onClick={goHome} className="oe-focus"><Logo /></button>
+          <button onClick={goHome} className="oe-focus bg-white rounded-xl px-2 py-1.5 inline-block"><Logo /></button>
           <p className="text-[12px] text-white/50 mt-3 max-w-[220px]">Achetez simplement, recevez rapidement. Votre boutique unique de confiance.</p>
         </div>
         <div>

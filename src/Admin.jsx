@@ -84,6 +84,30 @@ function AdminDashboard({ orders, products, clients }) {
             <StatusBadge status={o.status} />
           </div>
         ))}
+        {orders.length === 0 && <div className="px-4 py-6 text-center text-[12px] text-[#8A8781]">Aucune commande pour l'instant.</div>}
+      </div>
+
+      <div className="flex items-center justify-between mt-8 mb-3">
+        <h2 className="oe-display font-bold text-[#1C1C1E] text-[15px]">Produits</h2>
+        <span className="text-[11px] text-[#8A8781]">{products.length} au catalogue</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        {products.slice(0, 12).map((p) => (
+          <div key={p.id} className="bg-white border border-[#EFEDE8] rounded-2xl overflow-hidden">
+            <div className="aspect-square bg-[#F5F3EF] relative">
+              {p.img ? <img src={p.img} alt={p.name} className="w-full h-full object-cover" /> : (
+                <div className="w-full h-full flex items-center justify-center text-[#C9C6C0]"><Package size={20} /></div>
+              )}
+              {p.stock <= 0 && <span className="absolute top-1.5 left-1.5 bg-white/95 text-[#B42318] text-[9px] font-bold px-1.5 py-0.5 rounded-full">RUPTURE</span>}
+              {!p.active && <span className="absolute top-1.5 right-1.5 bg-[#1C1C1E]/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">OFF</span>}
+            </div>
+            <div className="p-2">
+              <div className="text-[11px] font-semibold text-[#1C1C1E] truncate">{p.name}</div>
+              <div className="oe-mono text-[10.5px] text-[#8A8781] mt-0.5">{money(p.promo ? p.promoPrice : p.price)} · {p.stock} en stock</div>
+            </div>
+          </div>
+        ))}
+        {products.length === 0 && <div className="col-span-full text-center py-6 text-[12px] text-[#8A8781]">Aucun produit au catalogue.</div>}
       </div>
     </div>
   );
