@@ -1249,14 +1249,19 @@ export default function OmarcheExpress() {
         promo: payload.promo, promo_price: payload.promo ? payload.promoPrice : null,
         stock: payload.stock, popular: payload.popular, is_new: payload.isNew,
         active: payload.active, image_url: payload.img, description: payload.desc,
+        images: payload.images || (payload.img ? [payload.img] : []),
+        video_url: payload.videoUrl || null,
+        min_order_qty: payload.minOrderQty || 1,
+        wholesale_price: payload.wholesalePrice ?? null,
+        wholesale_min_qty: payload.wholesaleMinQty ?? null,
       };
+      let error;
       if (editingId) {
-        const { error } = await supabase.from("products").update(row).eq("id", editingId);
-        if (error) return false;
+        ({ error } = await supabase.from("products").update(row).eq("id", editingId));
       } else {
-        const { error } = await supabase.from("products").insert(row);
-        if (error) return false;
+        ({ error } = await supabase.from("products").insert(row));
       }
+      if (error) { console.error(error); return false; }
       const { data } = await supabase.from("products").select("*").order("created_at", { ascending: false });
       if (data) setProducts(data.map(dbProductToApp));
       return true;
