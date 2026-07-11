@@ -7,7 +7,7 @@ import {
   MapPin, Phone, MessageSquare, Eye, EyeOff, PackageCheck, PackageX,
   BarChart3, Home as HomeIcon, ClipboardList, Settings, Flame,
   Sparkles, Baby, HeartPulse, UtensilsCrossed, Smartphone, Shirt, Upload,
-  Headphones, ShieldCheck, RotateCcw, ChevronDown, Facebook, Instagram, Send, MessageCircle,
+  Headphones, ShieldCheck, RotateCcw, ChevronDown, Facebook, Instagram, Send, MessageCircle, Video,
   Cable, Store, Gamepad2, Briefcase, Cpu, Glasses, Dumbbell, BookOpen, Car, Heart
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
@@ -105,7 +105,14 @@ const INIT_CLIENTS = [
   { id: "cl3", name: "Fatou Diabaté", phone: "05 55 12 34 56", email: "fatou.d@example.com", orders: 9 },
 ];
 
-export const money = (n) => n.toLocaleString("fr-FR").replace(/,/g, " ") + " FCFA";
+export const money = (n) => (n || 0).toLocaleString("fr-FR").replace(/,/g, " ") + " FCFA";
+// Nettoie une saisie de prix : "14.000", "14 000" ou "14,000" deviennent tous 14000 (jamais 14)
+export const parsePriceInput = (raw) => Number(String(raw ?? "").replace(/[^\d]/g, "")) || 0;
+// Retourne le prix unitaire applicable selon la quantité (tarif grossiste si le seuil est atteint)
+export const effectivePrice = (product, qty) => {
+  if (product.wholesalePrice && product.wholesaleMinQty && qty >= product.wholesaleMinQty) return product.wholesalePrice;
+  return product.promo ? product.promoPrice : product.price;
+};
 
 /* ============================== SMALL UI PIECES ============================== */
 function Logo({ compact }) {
@@ -291,12 +298,13 @@ function ProductCard({ p, onOpen, onAdd }) {
           {p.promo && <span className="oe-mono text-[11px] text-[#8A8781] line-through">{money(p.price)}</span>}
         </div>
         <StockGauge stock={p.stock} />
+        {p.minOrderQty > 1 && <span className="text-[10px] font-semibold text-[#C6480A]">Commande min. {p.minOrderQty}</span>}
         <div className="flex items-center justify-between mt-auto pt-1">
           <span className="text-[11px] text-[#8A8781]">{outOfStock ? "Indisponible" : `${p.stock} en stock`}</span>
           <button
             className="oe-focus w-8 h-8 rounded-full bg-[#1C1C1E] text-white flex items-center justify-center disabled:opacity-25 hover:bg-[#FF6A00] transition-colors"
             disabled={outOfStock}
-            onClick={() => onAdd(p, 1)}
+            onClick={() => onAdd(p, p.minOrderQty || 1)}
             aria-label="Ajouter au panier"
           ><Plus size={15} /></button>
         </div>
@@ -627,27 +635,53 @@ function ProductListView({ products, categories, query, setQuery, catId, setCatI
 /* ============================== PRODUCT DETAIL ============================== */
 function ProductDetail({ product, onClose, onAdd }) {
   const [qty, setQty] = useState(1);
+  const [activeMedia, setActiveMedia] = useState(0); // index dans [videoUrl?, ...images]
+  useEffect(() => { if (product) { setQty(product.minOrderQty || 1); setActiveMedia(0); } }, [product?.id]);
   if (!product) return null;
   const outOfStock = product.stock <= 0;
-  const price = product.promo ? product.promoPrice : product.price;
+  const price = effectivePrice(product, qty);
+  const media = [...(product.videoUrl ? [{ type: "video", url: product.videoUrl }] : []), ...((product.images && product.images.length ? product.images : [product.img]).map((u) => ({ type: "image", url: u })))];
+  const current = media[activeMedia] || media[0];
+  const nextWholesaleGap = product.wholesaleMinQty && qty < product.wholesaleMinQty ? product.wholesaleMinQty - qty : 0;
+
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40" onClick={onClose}>
       <div className="oe-rise bg-white w-full md:max-w-md md:rounded-3xl rounded-t-3xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="relative aspect-square bg-[#F5F3EF]">
-          <img src={product.img} alt={product.name} className="w-full h-full object-cover md:rounded-t-3xl" />
+          {current?.type === "video" ? (
+            <video src={current.url} controls className="w-full h-full object-cover md:rounded-t-3xl" />
+          ) : (
+            <img src={current?.url} alt={product.name} className="w-full h-full object-cover md:rounded-t-3xl" />
+          )}
           <button onClick={onClose} className="oe-focus absolute top-3 right-3 w-9 h-9 rounded-full bg-white/95 flex items-center justify-center"><X size={16} /></button>
           {product.promo && <span className="absolute top-3 left-3 bg-[#1C1C1E] text-white text-[11px] font-bold px-2.5 py-1 rounded-full">EN PROMOTION</span>}
         </div>
+        {media.length > 1 && (
+          <div className="flex gap-2 px-5 pt-3 overflow-x-auto oe-scrollbar-none">
+            {media.map((m, i) => (
+              <button key={i} onClick={() => setActiveMedia(i)} className={`oe-focus shrink-0 w-14 h-14 rounded-xl overflow-hidden border-2 ${activeMedia === i ? "border-[#FF6A00]" : "border-transparent"} bg-[#F5F3EF] relative`}>
+                {m.type === "video" ? (
+                  <div className="w-full h-full flex items-center justify-center"><Video size={16} className="text-[#4B4B4E]" /></div>
+                ) : (
+                  <img src={m.url} className="w-full h-full object-cover" alt="" />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="p-5">
           <h2 className="oe-display font-bold text-[#1C1C1E] text-[19px]">{product.name}</h2>
           <div className="flex items-baseline gap-2 mt-2">
             <span className="oe-mono font-bold text-[#1C1C1E] text-[20px]">{money(price)}</span>
-            {product.promo && <span className="oe-mono text-[13px] text-[#8A8781] line-through">{money(product.price)}</span>}
+            {product.promo && price === product.promoPrice && <span className="oe-mono text-[13px] text-[#8A8781] line-through">{money(product.price)}</span>}
           </div>
+          {product.wholesalePrice && product.wholesaleMinQty && (
+            <div className="mt-1.5 inline-flex items-center gap-1.5 bg-[#FFF1E6] text-[#C6480A] text-[11px] font-semibold px-2.5 py-1 rounded-full">
+              <Package size={12} /> Tarif grossiste : {money(product.wholesalePrice)} dès {product.wholesaleMinQty} unités
+            </div>
+          )}
           <p className="text-[13px] text-[#4B4B4E] mt-3 leading-relaxed">{product.desc}</p>
-          <a href={waLink(`Bonjour, je suis intéressé(e) par : ${product.name}.`)} target="_blank" rel="noopener noreferrer" className="oe-focus mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#1F8A50]">
-            <WhatsAppIcon size={14} color="#1F8A50" /> Discuter avec OmarchéExpress sur WhatsApp
-          </a>
+          {product.minOrderQty > 1 && <p className="text-[11px] font-semibold text-[#C6480A] mt-2">Quantité minimum de commande : {product.minOrderQty}</p>}
           <div className="mt-4">
             <div className="flex items-center justify-between text-[12px] text-[#8A8781] mb-1.5">
               <span>Stock disponible</span>
@@ -656,12 +690,23 @@ function ProductDetail({ product, onClose, onAdd }) {
             <StockGauge stock={product.stock} />
           </div>
           {!outOfStock ? (
-            <div className="flex items-center gap-3 mt-6">
-              <QtyStepper value={qty} onChange={setQty} max={product.stock} />
-              <button onClick={() => { onAdd(product, qty); onClose(); }} className="oe-focus flex-1 bg-[#1C1C1E] hover:bg-[#FF6A00] transition-colors text-white font-semibold text-[13px] rounded-full py-3 flex items-center justify-center gap-2">
-                <ShoppingCart size={15} /> Ajouter au panier · {money(price * qty)}
-              </button>
-            </div>
+            <>
+              <div className="flex items-center gap-3 mt-6">
+                <QtyStepper value={qty} onChange={setQty} min={product.minOrderQty || 1} max={product.stock} />
+                <span className="oe-mono font-semibold text-[14px] text-[#1C1C1E]">{money(price * qty)}</span>
+              </div>
+              {nextWholesaleGap > 0 && (
+                <p className="text-[10.5px] text-[#8A8781] mt-1.5">Ajoutez {nextWholesaleGap} unité(s) de plus pour le tarif grossiste.</p>
+              )}
+              <div className="flex items-center gap-2 mt-4">
+                <a href={waLink(`Bonjour, je suis intéressé(e) par : ${product.name}.`)} target="_blank" rel="noopener noreferrer" className="oe-focus flex-1 border border-[#1C1C1E] text-[#1C1C1E] font-semibold text-[13px] rounded-full py-3 flex items-center justify-center gap-2 hover:bg-[#F5F3EF] transition-colors">
+                  Discuter ici
+                </a>
+                <button onClick={() => { onAdd(product, qty); onClose(); }} className="oe-focus flex-1 bg-[#C6480A] hover:bg-[#FF6A00] transition-colors text-white font-semibold text-[13px] rounded-full py-3">
+                  Commander
+                </button>
+              </div>
+            </>
           ) : (
             <div className="mt-6 bg-[#FBE4E4] text-[#B42318] text-[12px] font-semibold rounded-2xl py-3 text-center">Produit actuellement indisponible</div>
           )}
@@ -685,7 +730,7 @@ function Ticket({ children, footer }) {
 /* ============================== CART VIEW ============================== */
 function CartView({ cart, products, onQty, onRemove, onCheckout, onContinue }) {
   const lines = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((l) => l.product);
-  const total = lines.reduce((s, l) => s + (l.product.promo ? l.product.promoPrice : l.product.price) * l.qty, 0);
+  const total = lines.reduce((s, l) => s + effectivePrice(l.product, l.qty) * l.qty, 0);
   if (lines.length === 0) {
     return <EmptyState icon={ShoppingCart} title="Votre panier est vide" subtitle="Parcourez la boutique et ajoutez des produits pour commencer." action={
       <button onClick={onContinue} className="oe-focus mt-4 bg-[#1C1C1E] text-white text-[13px] font-semibold rounded-full px-5 py-2.5">Voir les produits</button>
@@ -711,14 +756,14 @@ function CartView({ cart, products, onQty, onRemove, onCheckout, onContinue }) {
         <div className="oe-dash my-3" />
         <div className="flex flex-col divide-y divide-[#F1F0EE]">
           {lines.map((l) => {
-            const price = l.product.promo ? l.product.promoPrice : l.product.price;
+            const price = effectivePrice(l.product, l.qty);
             return (
               <div key={l.id} className="py-3 flex items-center gap-3">
                 <img src={l.product.img} className="w-14 h-14 rounded-xl object-cover bg-[#F5F3EF]" alt={l.product.name} />
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-semibold text-[#1C1C1E] truncate">{l.product.name}</div>
                   <div className="oe-mono text-[12px] text-[#8A8781] mt-0.5">{money(price)} × {l.qty}</div>
-                  <div className="mt-2"><QtyStepper value={l.qty} onChange={(v) => onQty(l.id, v)} max={l.product.stock} /></div>
+                  <div className="mt-2"><QtyStepper value={l.qty} onChange={(v) => onQty(l.id, v)} min={l.product.minOrderQty || 1} max={l.product.stock} /></div>
                 </div>
                 <div className="flex flex-col items-end justify-between h-full gap-3">
                   <button onClick={() => onRemove(l.id)} className="oe-focus text-[#8A8781] hover:text-[#B42318]"><Trash2 size={15} /></button>
@@ -741,7 +786,7 @@ function CheckoutView({ cart, products, onSubmit, onBack, currentUser }) {
   });
   const [errors, setErrors] = useState({});
   const lines = cart.map((c) => ({ ...c, product: products.find((p) => p.id === c.id) })).filter((l) => l.product);
-  const total = lines.reduce((s, l) => s + (l.product.promo ? l.product.promoPrice : l.product.price) * l.qty, 0);
+  const total = lines.reduce((s, l) => s + effectivePrice(l.product, l.qty) * l.qty, 0);
 
   const validate = () => {
     const e = {};
@@ -974,7 +1019,9 @@ const dbProductToApp = (p) => ({
   id: p.id, name: p.name, cat: p.category_id, price: p.price,
   promo: p.promo, promoPrice: p.promo_price, stock: p.stock,
   popular: p.popular, isNew: p.is_new, active: p.active,
-  img: p.image_url, desc: p.description,
+  img: (p.images && p.images[0]) || p.image_url, images: p.images && p.images.length ? p.images : (p.image_url ? [p.image_url] : []),
+  videoUrl: p.video_url, desc: p.description,
+  minOrderQty: p.min_order_qty || 1, wholesalePrice: p.wholesale_price, wholesaleMinQty: p.wholesale_min_qty,
 });
 const dbCategoryToApp = (c) => ({ id: c.id, name: c.name, icon: iconForCategory(c.name) });
 
@@ -1138,7 +1185,7 @@ export default function OmarcheExpress() {
 
     const items = lines.map((l) => ({
       order_id: orderRow.id, product_id: l.id, product_name: l.product.name,
-      quantity: l.qty, unit_price: l.product.promo ? l.product.promoPrice : l.product.price,
+      quantity: l.qty, unit_price: effectivePrice(l.product, l.qty),
     }));
     await supabase.from("order_items").insert(items);
 
@@ -1154,7 +1201,7 @@ export default function OmarcheExpress() {
     const order = {
       id: orderNumber, uuid: orderRow.id, clientName: form.name, phone: form.phone,
       address: form.address, quartier: form.quartier, ville: form.ville, comment: form.comment,
-      items: lines.map((l) => ({ id: l.id, name: l.product.name, qty: l.qty, price: l.product.promo ? l.product.promoPrice : l.product.price })),
+      items: lines.map((l) => ({ id: l.id, name: l.product.name, qty: l.qty, price: effectivePrice(l.product, l.qty) })),
       total, status: "Reçue", date: new Date().toISOString(),
     };
     setCart([]);

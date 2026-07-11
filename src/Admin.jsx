@@ -1,10 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   BarChart3, Package, Tag, ClipboardList, Users, Wallet, Clock,
   PlusCircle, Pencil, Trash2, Upload, MessageSquare, User,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
-import { money, StatusBadge, EmptyState, STATUS_STEPS, OrderChat } from "./OmarcheExpress.jsx";
+import { money, parsePriceInput, StatusBadge, EmptyState, STATUS_STEPS, OrderChat } from "./OmarcheExpress.jsx";
 
 function AdminSidebar({ tab, setTab }) {
   const items = [
@@ -115,33 +115,65 @@ function AdminDashboard({ orders, products, clients }) {
 
 function AdminProducts({ products, categories, onSaveProduct, onDeleteProduct, onToggleProduct, notify }) {
   const [editing, setEditing] = useState(null); // product or "new"
-  const emptyForm = { name: "", cat: categories[0]?.id, price: "", stock: "", promo: false, promoPrice: "", img: "", desc: "", active: true, popular: false, isNew: true };
+  const emptyForm = { name: "", cat: categories[0]?.id, price: "", stock: "", promo: false, promoPrice: "", images: [], videoUrl: "", desc: "", active: true, popular: false, isNew: true, minOrderQty: "1", wholesalePrice: "", wholesaleMinQty: "" };
   const [form, setForm] = useState(emptyForm);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
 
   const openNew = () => { setForm(emptyForm); setEditing("new"); };
-  const openEdit = (p) => { setForm({ ...p }); setEditing(p.id); };
+  const openEdit = (p) => { setForm({ ...emptyForm, ...p, images: p.images && p.images.length ? p.images : (p.img ? [p.img] : []), price: String(p.price ?? ""), promoPrice: String(p.promoPrice ?? ""), minOrderQty: String(p.minOrderQty || 1), wholesalePrice: String(p.wholesalePrice ?? ""), wholesaleMinQty: String(p.wholesaleMinQty ?? "") }); setEditing(p.id); };
 
-  const handlePhotoPick = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
+  const uploadFile = async (file, bucket = "product-images") => {
     const ext = file.name.split(".").pop();
     const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from("product-images").upload(fileName, file);
-    if (error) {
-      notify("Erreur lors de l'envoi de la photo");
-    } else {
-      const { data } = supabase.storage.from("product-images").getPublicUrl(fileName);
-      setForm((f) => ({ ...f, img: data.publicUrl }));
+    const { error } = await supabase.storage.from(bucket).upload(fileName, file);
+    if (error) return null;
+    const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
+    return data.publicUrl;
+  };
+
+  const handlePhotosPick = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const room = 8 - form.images.length;
+    if (room <= 0) { notify("Maximum 8 photos par produit"); return; }
+    setUploadingPhotos(true);
+    const urls = [];
+    for (const file of files.slice(0, room)) {
+      const url = await uploadFile(file);
+      if (url) urls.push(url);
     }
-    setUploading(false);
+    if (urls.length) setForm((f) => ({ ...f, images: [...f.images, ...urls] }));
+    if (files.length > room) notify(`Seules ${room} photo(s) ont été ajoutées (maximum 8)`);
+    setUploadingPhotos(false);
+    e.target.value = "";
+  };
+
+  const removePhoto = (idx) => setForm((f) => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
+
+  const handleVideoPick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingVideo(true);
+    const url = await uploadFile(file);
+    if (url) setForm((f) => ({ ...f, videoUrl: url })); else notify("Erreur lors de l'envoi de la vidéo");
+    setUploadingVideo(false);
+    e.target.value = "";
   };
 
   const save = async () => {
     if (!form.name.trim() || form.price === "" || form.stock === "") { notify("Veuillez remplir les champs obligatoires"); return; }
-    if (!form.img) { notify("Ajoutez une photo pour le produit"); return; }
-    const payload = { ...form, price: Number(form.price), stock: Number(form.stock), promoPrice: form.promo ? Number(form.promoPrice || 0) : undefined };
+    if (!form.images.length) { notify("Ajoutez au moins une photo pour le produit"); return; }
+    const payload = {
+      ...form,
+      price: parsePriceInput(form.price),
+      stock: Number(form.stock),
+      promoPrice: form.promo ? parsePriceInput(form.promoPrice) : undefined,
+      img: form.images[0],
+      minOrderQty: Math.max(1, Number(form.minOrderQty) || 1),
+      wholesalePrice: form.wholesalePrice ? parsePriceInput(form.wholesalePrice) : null,
+      wholesaleMinQty: form.wholesaleMinQty ? Number(form.wholesaleMinQty) : null,
+    };
     const isNewProduct = editing === "new";
     const ok = await onSaveProduct(payload, isNewProduct ? null : editing);
     if (ok) notify(isNewProduct ? "Produit ajouté" : "Produit modifié");
@@ -169,13 +201,14 @@ function AdminProducts({ products, categories, onSaveProduct, onDeleteProduct, o
           <div key={p.id} className="bg-white border border-[#EFEDE8] rounded-2xl p-3 flex items-center gap-3">
             <img src={p.img} className="w-14 h-14 rounded-xl object-cover bg-[#F5F3EF]" alt={p.name} />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[13px] font-semibold text-[#1C1C1E] truncate">{p.name}</span>
                 {!p.active && <span className="text-[10px] font-bold bg-[#F1F0EE] text-[#8A8781] px-2 py-0.5 rounded-full">DÉSACTIVÉ</span>}
                 {p.stock <= 0 && <span className="text-[10px] font-bold bg-[#FBE4E4] text-[#B42318] px-2 py-0.5 rounded-full">RUPTURE</span>}
                 {p.promo && <span className="text-[10px] font-bold bg-[#FFF3DB] text-[#8A5A00] px-2 py-0.5 rounded-full">PROMO</span>}
+                {p.videoUrl && <span className="text-[10px] font-bold bg-[#E6F0FF] text-[#1D4ED8] px-2 py-0.5 rounded-full flex items-center gap-1"><Video size={10} /> Vidéo</span>}
               </div>
-              <div className="text-[11px] text-[#8A8781] mt-0.5">{categories.find((c) => c.id === p.cat)?.name} · {money(p.price)} · {p.stock} en stock</div>
+              <div className="text-[11px] text-[#8A8781] mt-0.5">{categories.find((c) => c.id === p.cat)?.name} · {money(p.price)} · {p.stock} en stock{p.minOrderQty > 1 ? ` · min. ${p.minOrderQty}` : ""}</div>
             </div>
             <button onClick={() => toggleActive(p.id)} className="oe-focus text-[11px] font-semibold text-[#4B4B4E] px-2.5 py-1.5 rounded-full border border-[#EFEDE8] hover:border-[#1C1C1E] shrink-0">{p.active ? "Désactiver" : "Activer"}</button>
             <button onClick={() => openEdit(p)} className="oe-focus w-8 h-8 rounded-full bg-[#F5F3EF] flex items-center justify-center shrink-0"><Pencil size={13} /></button>
@@ -202,29 +235,50 @@ function AdminProducts({ products, categories, onSaveProduct, onDeleteProduct, o
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-semibold text-[#4B4B4E]">Prix (FCFA)</label>
-                  <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
+                  <input type="text" inputMode="numeric" placeholder="Ex : 14000" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
                 </div>
                 <div>
                   <label className="text-[11px] font-semibold text-[#4B4B4E]">Quantité en stock</label>
                   <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
                 </div>
               </div>
+              <p className="text-[10px] text-[#8A8781] -mt-2">Saisis juste les chiffres (ex : 14000). Les points ou espaces sont ignorés automatiquement.</p>
+
               <div>
-                <label className="text-[11px] font-semibold text-[#4B4B4E]">Photo du produit</label>
-                <div className="mt-1 flex items-center gap-3">
-                  {form.img ? (
-                    <img src={form.img} alt="Aperçu" className="w-16 h-16 rounded-xl object-cover bg-[#F5F3EF] border border-[#EFEDE8]" />
-                  ) : (
-                    <div className="w-16 h-16 rounded-xl bg-[#F5F3EF] border border-dashed border-[#EFEDE8] flex items-center justify-center text-[#8A8781]">
-                      <Upload size={18} />
+                <label className="text-[11px] font-semibold text-[#4B4B4E]">Photos du produit ({form.images.length}/8)</label>
+                <div className="mt-1 grid grid-cols-4 gap-2">
+                  {form.images.map((url, i) => (
+                    <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-[#F5F3EF] border border-[#EFEDE8] group">
+                      <img src={url} alt="" className="w-full h-full object-cover" />
+                      <button onClick={() => removePhoto(i)} className="oe-focus absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center"><X size={11} /></button>
+                      {i === 0 && <span className="absolute bottom-1 left-1 bg-white/90 text-[8px] font-bold px-1.5 py-0.5 rounded-full">Principale</span>}
                     </div>
+                  ))}
+                  {form.images.length < 8 && (
+                    <label className="oe-focus cursor-pointer aspect-square rounded-xl border border-dashed border-[#EFEDE8] flex flex-col items-center justify-center text-[#8A8781] hover:border-[#1C1C1E] text-center px-1">
+                      <Upload size={16} />
+                      <span className="text-[9px] font-semibold mt-1">{uploadingPhotos ? "Envoi..." : "Ajouter"}</span>
+                      <input type="file" accept="image/*" multiple onChange={handlePhotosPick} disabled={uploadingPhotos} className="hidden" />
+                    </label>
                   )}
-                  <label className="oe-focus cursor-pointer flex-1 text-center border border-[#EFEDE8] rounded-xl px-3 py-2.5 text-[12px] font-semibold text-[#4B4B4E] hover:border-[#1C1C1E]">
-                    {uploading ? "Envoi en cours..." : form.img ? "Changer la photo" : "Choisir une photo dans la galerie"}
-                    <input type="file" accept="image/*" onChange={handlePhotoPick} disabled={uploading} className="hidden" />
-                  </label>
                 </div>
               </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-[#4B4B4E]">Vidéo du produit (facultatif)</label>
+                {form.videoUrl ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <video src={form.videoUrl} className="w-20 h-14 rounded-xl object-cover bg-[#F5F3EF]" />
+                    <button onClick={() => setForm({ ...form, videoUrl: "" })} className="oe-focus text-[11px] font-semibold text-[#B42318]">Retirer la vidéo</button>
+                  </div>
+                ) : (
+                  <label className="oe-focus mt-1 cursor-pointer flex items-center justify-center gap-1.5 border border-[#EFEDE8] rounded-xl px-3 py-2.5 text-[12px] font-semibold text-[#4B4B4E] hover:border-[#1C1C1E]">
+                    <Video size={14} /> {uploadingVideo ? "Envoi en cours..." : "Ajouter une vidéo"}
+                    <input type="file" accept="video/*" onChange={handleVideoPick} disabled={uploadingVideo} className="hidden" />
+                  </label>
+                )}
+              </div>
+
               <div>
                 <label className="text-[11px] font-semibold text-[#4B4B4E]">Description</label>
                 <textarea value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} rows={2} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
@@ -235,9 +289,26 @@ function AdminProducts({ products, categories, onSaveProduct, onDeleteProduct, o
               {form.promo && (
                 <div>
                   <label className="text-[11px] font-semibold text-[#4B4B4E]">Prix promo (FCFA)</label>
-                  <input type="number" value={form.promoPrice} onChange={(e) => setForm({ ...form, promoPrice: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
+                  <input type="text" inputMode="numeric" placeholder="Ex : 12000" value={form.promoPrice} onChange={(e) => setForm({ ...form, promoPrice: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
                 </div>
               )}
+
+              <div className="border-t border-[#EFEDE8] pt-3 mt-1">
+                <label className="text-[11px] font-semibold text-[#4B4B4E]">Quantité minimum de commande</label>
+                <input type="number" min="1" value={form.minOrderQty} onChange={(e) => setForm({ ...form, minOrderQty: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-[#4B4B4E]">Prix grossiste (FCFA)</label>
+                  <input type="text" inputMode="numeric" placeholder="Facultatif" value={form.wholesalePrice} onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-[#4B4B4E]">Dès combien d'unités</label>
+                  <input type="number" placeholder="Ex : 10" value={form.wholesaleMinQty} onChange={(e) => setForm({ ...form, wholesaleMinQty: e.target.value })} className="oe-focus w-full border border-[#EFEDE8] rounded-xl px-3 py-2 text-[13px] mt-1" />
+                </div>
+              </div>
+              <p className="text-[10px] text-[#8A8781] -mt-2">Laisse ces deux champs vides si tu ne proposes pas de tarif grossiste pour ce produit.</p>
+
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 text-[12px] font-medium text-[#1C1C1E]"><input type="checkbox" checked={form.popular} onChange={(e) => setForm({ ...form, popular: e.target.checked })} /> Populaire</label>
                 <label className="flex items-center gap-2 text-[12px] font-medium text-[#1C1C1E]"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> Actif</label>
@@ -379,13 +450,60 @@ function AdminClients({ clients }) {
   );
 }
 
+function useAdminNotifications(notify) {
+  const [permission, setPermission] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+
+  const requestPermission = async () => {
+    if (typeof Notification === "undefined") return;
+    const res = await Notification.requestPermission();
+    setPermission(res);
+  };
+
+  const fire = (title, body) => {
+    notify(title + " — " + body);
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      try { new Notification(title, { body, icon: "/logo.png" }); } catch (e) {}
+    }
+  };
+
+  useEffect(() => {
+    const ordersChannel = supabase
+      .channel("admin-new-orders")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders" }, (payload) => {
+        fire("Nouvelle commande !", `${payload.new.order_number} — ${payload.new.client_name}`);
+      })
+      .subscribe();
+
+    const messagesChannel = supabase
+      .channel("admin-new-messages")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "order_messages", filter: "sender=eq.client" }, (payload) => {
+        fire("Nouveau message client", payload.new.content.slice(0, 80));
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(messagesChannel);
+    };
+  }, []);
+
+  return { permission, requestPermission };
+}
+
 function AdminApp({ orders, products, categories, clients, notify, handlers }) {
   const [tab, setTab] = useState("dashboard");
+  const { permission, requestPermission } = useAdminNotifications(notify);
   return (
     <div className="flex">
       <AdminSidebar tab={tab} setTab={setTab} />
       <div className="flex-1 min-w-0">
         <AdminTabsMobile tab={tab} setTab={setTab} />
+        {permission === "default" && (
+          <div className="bg-[#FFF1E6] px-5 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+            <span className="text-[12px] text-[#1C1C1E]">Active les notifications pour être alerté des nouvelles commandes et messages, même onglet fermé en arrière-plan.</span>
+            <button onClick={requestPermission} className="oe-focus shrink-0 bg-[#1C1C1E] text-white text-[11px] font-semibold px-3 py-1.5 rounded-full">Activer les notifications</button>
+          </div>
+        )}
         {tab === "dashboard" && <AdminDashboard orders={orders} products={products} clients={clients} />}
         {tab === "products" && <AdminProducts products={products} categories={categories} onSaveProduct={handlers.saveProduct} onDeleteProduct={handlers.deleteProduct} onToggleProduct={handlers.toggleProduct} notify={notify} />}
         {tab === "categories" && <AdminCategories categories={categories} products={products} onAddCategory={handlers.addCategory} onDeleteCategory={handlers.deleteCategory} onRenameCategory={handlers.renameCategory} notify={notify} />}
