@@ -205,7 +205,7 @@ function FloatingWhatsApp() {
 }
 
 /* ============================== MESSAGERIE PAR COMMANDE ============================== */
-export function OrderChat({ orderUuid, orderNumber, sender, notify }) {
+export function OrderChat({ orderUuid, orderNumber, sender, notify, orderDetails }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -237,11 +237,24 @@ export function OrderChat({ orderUuid, orderNumber, sender, notify }) {
     setSending(false);
   };
 
+  const waMessage = orderDetails
+    ? [
+        `Bonjour, je vous contacte au sujet de ma commande ${orderNumber}.`,
+        "",
+        "Articles commandés :",
+        ...orderDetails.items.map((it) => `- ${it.name} × ${it.qty} (${money(it.price * it.qty)})`),
+        "",
+        `Total : ${money(orderDetails.total)}`,
+        `Adresse : ${orderDetails.address}, ${orderDetails.quartier}, ${orderDetails.ville}`,
+        `Statut actuel : ${orderDetails.status}`,
+      ].join("\n")
+    : `Bonjour, je vous contacte au sujet de ma commande ${orderNumber}.`;
+
   return (
     <div className="border border-[#EFEDE8] rounded-2xl overflow-hidden">
       <div className="bg-[#F5F3EF] px-4 py-2.5 flex items-center justify-between">
         <span className="text-[12px] font-semibold text-[#1C1C1E] flex items-center gap-1.5"><MessageSquare size={14} className="text-[#FF6A00]" /> Discussion — {orderNumber}</span>
-        <a href={waLink(`Bonjour, je vous contacte au sujet de ma commande ${orderNumber}.`)} target="_blank" rel="noopener noreferrer" className="oe-focus text-[10px] font-semibold text-[#1F8A50] flex items-center gap-1">
+        <a href={waLink(waMessage)} target="_blank" rel="noopener noreferrer" className="oe-focus text-[10px] font-semibold text-[#1F8A50] flex items-center gap-1">
           <WhatsAppIcon size={12} color="#1F8A50" /> WhatsApp
         </a>
       </div>
@@ -853,9 +866,19 @@ function CheckoutView({ cart, products, onSubmit, onBack, currentUser }) {
 }
 
 /* ============================== ORDER CONFIRMATION / TRACKING ============================== */
-function TrackingView({ order, onContinueShopping }) {
+function TrackingView({ order, onContinueShopping, onCancel, currentUser }) {
+  const [cancelling, setCancelling] = useState(false);
   if (!order) return <EmptyState icon={Package} title="Aucune commande à suivre" subtitle="Passez une commande pour voir son statut ici." />;
   const stepIndex = STATUS_STEPS.indexOf(order.status);
+  const canCancel = order.status === "Reçue" && order.uuid && currentUser?.id && order.clientId === currentUser.id;
+
+  const handleCancel = async () => {
+    if (!window.confirm("Annuler cette commande ? Cette action est définitive.")) return;
+    setCancelling(true);
+    await onCancel(order.uuid);
+    setCancelling(false);
+  };
+
   return (
     <div className="px-4 py-6 pb-24 max-w-lg mx-auto">
       <div className="text-center mb-6">
@@ -918,23 +941,29 @@ function TrackingView({ order, onContinueShopping }) {
       {order.uuid && (
         <div className="mt-8">
           <h2 className="oe-display font-bold text-[#1C1C1E] text-[15px] mb-4">Une question sur cette commande ?</h2>
-          <OrderChat orderUuid={order.uuid} orderNumber={order.id} sender="client" notify={() => {}} />
+          <OrderChat orderUuid={order.uuid} orderNumber={order.id} sender="client" notify={() => {}} orderDetails={order} />
         </div>
       )}
 
-      <button onClick={onContinueShopping} className="oe-focus w-full mt-4 bg-[#1C1C1E] text-white font-semibold text-[14px] rounded-full py-3.5">Continuer mes achats</button>
+      {canCancel && (
+        <button onClick={handleCancel} disabled={cancelling} className="oe-focus w-full mt-4 border border-[#FBE4E4] text-[#B42318] font-semibold text-[13px] rounded-full py-3 disabled:opacity-50">
+          {cancelling ? "Annulation..." : "Annuler ma commande"}
+        </button>
+      )}
+
+      <button onClick={onContinueShopping} className="oe-focus w-full mt-3 bg-[#1C1C1E] text-white font-semibold text-[14px] rounded-full py-3.5">Continuer mes achats</button>
     </div>
   );
 }
 
 /* ============================== ACCOUNT VIEW ============================== */
-function AccountView({ currentUser, onLogin, onSignup, onLogout, orders, authError, authLoading }) {
+function AccountView({ currentUser, onLogin, onSignup, onLogout, orders, authError, authLoading, onViewOrder }) {
   const [mode, setMode] = useState("login");
   const [showPw, setShowPw] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "", password: "" });
 
   if (currentUser) {
-    const myOrders = orders.filter((o) => o.clientName === currentUser.name);
+    const myOrders = orders.filter((o) => o.clientId === currentUser.id);
     return (
       <div className="px-4 py-6 pb-24 max-w-lg mx-auto">
         <div className="flex items-center gap-3 mb-6">
@@ -954,13 +983,14 @@ function AccountView({ currentUser, onLogin, onSignup, onLogout, orders, authErr
         ) : (
           <div className="flex flex-col gap-3">
             {myOrders.map((o) => (
-              <div key={o.id} className="border border-[#EFEDE8] rounded-2xl p-4 flex items-center justify-between">
+              <button key={o.id} onClick={() => onViewOrder(o)} className="oe-focus text-left border border-[#EFEDE8] rounded-2xl p-4 flex items-center justify-between hover:border-[#1C1C1E] transition-colors">
                 <div>
                   <div className="oe-mono text-[12px] font-semibold text-[#1C1C1E]">{o.id}</div>
                   <div className="text-[11px] text-[#8A8781] mt-0.5">{new Date(o.date).toLocaleDateString("fr-FR")} · {money(o.total)}</div>
+                  <div className="text-[10px] text-[#FF6A00] font-semibold mt-1">Voir l'évolution & discuter →</div>
                 </div>
                 <StatusBadge status={o.status} />
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -1086,6 +1116,7 @@ export default function OmarcheExpress() {
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [lastOrder, setLastOrder] = useState(null);
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [toast, setToast] = useState("");
 
   const notify = (msg) => { setToast(msg); window.clearTimeout(notify._t); notify._t = window.setTimeout(() => setToast(""), 2200); };
@@ -1146,6 +1177,40 @@ export default function OmarcheExpress() {
     if (currentUser) loadAdminData();
   }, [isAdmin, currentUser]);
 
+  // Notifications client : évolution de commande + réponses de la boutique
+  useEffect(() => {
+    if (!currentUser) return;
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    const fireClientNotif = (title, body) => {
+      notify(title + " — " + body);
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try { new Notification(title, { body, icon: "/logo.png" }); } catch (e) {}
+      }
+    };
+
+    const statusChannel = supabase
+      .channel(`client-order-status-${currentUser.id}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders" }, (payload) => {
+        if (payload.new.client_id === currentUser.id) {
+          fireClientNotif("Votre commande a évolué", `${payload.new.order_number} : ${payload.new.status}`);
+          setOrders((prev) => prev.map((o) => (o.uuid === payload.new.id ? { ...o, status: payload.new.status } : o)));
+        }
+      })
+      .subscribe();
+
+    const msgChannel = supabase
+      .channel(`client-order-messages-${currentUser.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "order_messages", filter: "sender=eq.admin" }, (payload) => {
+        const mine = orders.find((o) => o.uuid === payload.new.order_id && o.clientId === currentUser.id);
+        if (mine) fireClientNotif("Message d'OmarchéExpress", `${mine.id} : ${payload.new.content.slice(0, 80)}`);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(statusChannel); supabase.removeChannel(msgChannel); };
+  }, [currentUser, orders]);
+
   const cartCount = cart.reduce((s, c) => s + c.qty, 0);
 
   const addToCart = (product, qty) => {
@@ -1199,7 +1264,7 @@ export default function OmarcheExpress() {
     }));
 
     const order = {
-      id: orderNumber, uuid: orderRow.id, clientName: form.name, phone: form.phone,
+      id: orderNumber, uuid: orderRow.id, clientId: currentUser?.id || null, clientName: form.name, phone: form.phone,
       address: form.address, quartier: form.quartier, ville: form.ville, comment: form.comment,
       items: lines.map((l) => ({ id: l.id, name: l.product.name, qty: l.qty, price: effectivePrice(l.product, l.qty) })),
       total, status: "Reçue", date: new Date().toISOString(),
@@ -1211,9 +1276,19 @@ export default function OmarcheExpress() {
     trackPixel("Purchase", { value: total, currency: "XOF", content_ids: lines.map((l) => l.id), num_items: lines.length });
   };
 
-  const trackedOrder = lastOrder
-    ? (orders.find((o) => o.uuid === lastOrder.uuid) || lastOrder)
-    : null;
+  const trackedOrder = selectedOrderId
+    ? (orders.find((o) => o.uuid === selectedOrderId) || (lastOrder?.uuid === selectedOrderId ? lastOrder : null))
+    : (lastOrder ? (orders.find((o) => o.uuid === lastOrder.uuid) || lastOrder) : null);
+
+  const viewOrder = (o) => { setSelectedOrderId(o.uuid); setView("tracking"); };
+
+  const cancelOwnOrder = async (orderUuid) => {
+    const { error } = await supabase.from("orders").update({ status: "Annulée" }).eq("id", orderUuid);
+    if (error) { notify("Impossible d'annuler cette commande"); return false; }
+    setOrders((prev) => prev.map((o) => (o.uuid === orderUuid ? { ...o, status: "Annulée" } : o)));
+    notify("Commande annulée");
+    return true;
+  };
 
   const bottomNavGo = (id) => { if (id === "search") goSearchAll(); else setView(id); };
 
@@ -1337,8 +1412,8 @@ export default function OmarcheExpress() {
               {view === "search" && <ProductListView products={products} categories={categories} query={query} setQuery={setQuery} catId={catId} setCatId={setCatId} onOpen={setSelectedProduct} onAdd={addToCart} onBack={goHome} />}
               {view === "cart" && <CartView cart={cart} products={products} onQty={updateQty} onRemove={removeFromCart} onCheckout={() => { trackPixel("InitiateCheckout"); setView("checkout"); }} onContinue={goSearchAll} />}
               {view === "checkout" && <CheckoutView cart={cart} products={products} onSubmit={submitOrder} onBack={() => setView("cart")} currentUser={currentUser} />}
-              {view === "tracking" && <TrackingView order={trackedOrder} onContinueShopping={goHome} />}
-              {view === "account" && <AccountView currentUser={currentUser} onLogin={handleLogin} onSignup={handleSignup} onLogout={handleLogout} orders={orders} authError={authError} authLoading={authLoading} />}
+              {view === "tracking" && <TrackingView order={trackedOrder} onContinueShopping={goHome} onCancel={cancelOwnOrder} currentUser={currentUser} />}
+              {view === "account" && <AccountView currentUser={currentUser} onLogin={handleLogin} onSignup={handleSignup} onLogout={handleLogout} orders={orders} authError={authError} authLoading={authLoading} onViewOrder={viewOrder} />}
             </>
           )}
         </div>
