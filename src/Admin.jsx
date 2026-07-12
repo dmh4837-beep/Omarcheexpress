@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   BarChart3, Package, Tag, ClipboardList, Users, Wallet, Clock,
-  PlusCircle, Pencil, Trash2, Upload, MessageSquare, User,
+  PlusCircle, Pencil, Trash2, Upload, MessageSquare, User, Video, X,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import { money, parsePriceInput, StatusBadge, EmptyState, STATUS_STEPS, OrderChat } from "./OmarcheExpress.jsx";
